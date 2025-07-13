@@ -1,5 +1,10 @@
 # ARIMA-Energy-Price-Forecaster
-Fitting an ARIMA model to NZ energy prices
+## Summary
+Forecasted New Zealand energy prices using one year of half hourly data from the New Zealand Electricity Authority. Conducted stationarity diagnostics and applied first-order differencing to stabilize the series. Performed autocorrelation and partial autocorrelation analysis to inform model development. Built and evaluated four forecasting models ARIMA, STL-ARIMA, ARIMAX, and TBATS. Compared model performance using forecast accuracy metrics including ME, MAE, and RMSE.
+
+The  ARIMA(3,1,1)(0,0,2)[48] demonstrated the highest accuracy across the ME, RMSE, MAE, MPE, MAPE, and ACF1 metrics.
+
+This project was made using RStudio.
 
 # Data cleaning and wrangling
 I loaded in the training set which was 12 months of half hourly data from the Electricity Authority.
