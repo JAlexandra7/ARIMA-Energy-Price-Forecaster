@@ -24,6 +24,7 @@ There were no missing values or NA's in the dataset
 # EDA
 
 ![Alt](Images/1.png)
+
 There were very few values above 400 for DollarsPerMegawattHour. The mode for DollarsPerMegawattHour was around 70 dollars. There were no negative values for DollarsPerMegawattHour.
 
 There are 34 observations where the DollarsPerMegawattHour value was larger than the 400, which in a data set of 17158 observations was very few.
@@ -31,16 +32,19 @@ There are 34 observations where the DollarsPerMegawattHour value was larger than
 The mean DollarsPerMegawattHour for year 2017 at point connection ABY0111 was 78.57 (round to 2.dp)
 
 ![Alt](Images/2.png)
+
 I saw that there were specific dates where the whole sale price of electricity spiked to unusually high amounts.
 There were spikes in electricity price on 2027-05-22, 2017-07-13, 2017-09-11, and 2017-10-19.
 
 ![Alt](Images/3.png)
+
 The price of electricity was much higher for June and July. The lower quartile of June and July doesn't even overlap with the upper quartiles of the previous months.
 The prices dip again for August, September and October but then start increasing again in November and December.
 
 # Autocorrelation & Partial Autocorrelation Analysis
 
 ![Alt](Images/4.png)
+
 ACF:
 I saw that all of the spikes in the ACF plot are outside of the blue dashed significance bound this means that the time series data was highly autocorrelated and non-stationary. The autocorrelation at all of the lags was statistically meaningful and not just white noise. Past values have a strong influence on future ones across many lags.
 There was particularly high autocorrelation at the early lags. This suggests that recent values strongly influence near future behavior, implying short term memory or an autoregressive structure.
@@ -57,6 +61,7 @@ I applied first order differencing to the data to make the data stationary, as s
 
 The subsequent acf and pacf plots for the first order differenced time series were:
 ![Alt](Images/5.png)
+
 ACF:
 After applying first order differencing most lags in the ACF plot were within the confidence bounds, meaning there was no strong autocorrelation.
 There was no sharp cutoff or pattern in the plot. There were no clear periodic spikes (e.g. at lag 48), which indicated that there was no seasonality left.
@@ -115,14 +120,17 @@ that the residuals were non-normal.
 
 Checking for constant variance:
 ![Alt](Images/8.png)
+
 As the fitted values increase, the residuals fan out, showing increasing variance.
 There’s a tight cluster around zero residuals for lower fitted values
 
 ![Alt](Images/9.png)
+
 Most autocorrelation bars fall within the dashed blue confidence bands, suggesting they’re not statistically significant.
 There was no strong pattern of lingering autocorrelation. The residuals behaved like white noise.
 
 ![Alt](Images/10.png)
+
 Most lags fell within the blue dashed confidence bands, meaning their partial autocorrelations weren’t statistically significant.
 There are a few spikes outside of the confidence bounds, particularly at lag 1 suggesting short-term autocorrelation. This implied that the AR term (p) was slightly under-specified. I tried increasing the AR component to try and capture the remaining autocorrelation.
 
@@ -134,12 +142,15 @@ For Anderson-Darling normality test the p-value was very small, so I rejected th
 that the residuals were non-normal.
 
 ![Alt](Images/13.png)
+
 As the fitted values increase, the residuals fan out, showing increasing variance. There’s a tight cluster around zero residuals for lower fitted values.
 
 ![Alt](Images/14.png)
+
 The models residuals were like white noise, most of the bars were within the confidence bounds
 
 ![Alt](Images/15.png)
+
 There are significant spikes outside the confidence bands, this suggests that there are lags that aren’t captured by my current AR structure.
 I tried increasing the AR component to try and capture the remaining autocorrelation.
 
@@ -147,9 +158,11 @@ I tried increasing the AR component to try and capture the remaining autocorrela
 I applied a box cox transformation to the time series to try and resolve the non-normality.
 
 ![Alt](Images/16.png)
+
 There was a curved pattern in the data which indicated that the data was skewed or was not normally distributed
 
 ![Alt](Images/17.png)
+
 The data was not centered around zero, so its not a standard normal distribution. The data also appeared to be right skewed. This plot indicated that the data was not normally distributed.
 
 For the Anderson-Darling normality test it had a small p-value which indicate that the data was still not normal even after a BoxCox transformation
@@ -158,6 +171,7 @@ The data was not normally distributed, but the box-cox transformed time series w
 
 I checked for outliers with Tukey’s Fences and visualized that in a time series plot where each red dot was an outlier:
 ![Alt](Images/19.png)
+
 There are 84 outliers according to Tukey’s Fences. Since energy prices are so volatile, I decided  not to discard the outliers in the series.
 
 For both models (ARIMA and STL-ARIMA) I increased the AR component by 1, and applied a box-cox transformation to the time series data.
@@ -184,6 +198,7 @@ It seems my refinement of the models made their performance worse.
 The best model was ARIMA(3,1,1)(0,0,2)[48] and the worst model was STL-ARIMA 2
 
 ![Alt](Images/20.png)
+
 This plot shows my ARIMA model forecast for the final half hourly electricity prices for the year 2018 compared to the actual values for that year.
 
 There are large fluctuations in the actual electricity prices, particularly in July and November.
