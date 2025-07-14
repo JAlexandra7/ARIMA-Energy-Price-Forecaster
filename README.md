@@ -34,7 +34,7 @@ There were very few values above 400 for DollarsPerMegawattHour. The mode for Do
 
 There are 34 observations where the DollarsPerMegawattHour value was larger than the 400, which in a data set of 17158 observations was very few.
 
-The mean DollarsPerMegawattHour for year 2017 at point connection ABY0111 was 78.57 (round to 2.dp)
+The mean DollarsPerMegawattHour for year 2017 at point connection ABY0111 was 78.71 (round to 2.dp)
 
 ![Alt](Images/2.png)
 
@@ -97,20 +97,23 @@ They were all trained on a time series containing 12 months of half hourly final
 
 After forecasting with those models I obtained the accuracy metrics:
 
-|              | ARIMA          | ARIMAX  | STL-ARIMA | TBATS |
-|--------------|----------------|----------|---------|-----------|
-| ME | 6.13    | 53.023     | 11.08    | 12.63  |
-| RMSE | 18.29 | 55.87   | 21.15  | 23.62    |
-| MAE | 12.67  | 53.03    |  16.55 | 19.15 |
-| MPE | 3.13   | 58.91 | 8.99 | 10.28 |
-| MAPE | 14.33 | 58.91 | 18.40 | 21.44 |
-|MASE |0.65 | 2.72 | 0.85 | 0.98 |
-| ACF1 | 0.62  | 0.63 | 0.63 | 0.72 |
+|         | ME | RMSE | MAE | MAPE | MAPE | MASE | ACF1 |
+|---------|----|------|------|-------|-------|------ |
+ARIMA     |6.56	 | 19.17  |	13.71	| 3.29	| 15.65	| 0.70	| 0.65   |
+STL_ARIMA |12.25 |	21.63	| 17.83	| 10.29	| 19.71	| 0.91	| 0.66	 |
+ARIMAX    |53.42 |	56.51	| 53.42	| 58.78	| 58.78	| 2.74	| 0.65   |
+TBATS     |2.16  |	23.57	| 17.06	| -2.10	| 20.54	| 0.87	| 0.74   |
 
-The ARIMA model has the best ME, RMSE, MAE, MPE, MAPE and MASE. ARIMA was the most accurate model.
-The worst model was ARIMAX with the worst ME, RMSE, MAE, MPE, MAPE and MASE. The second worst model was TBATS.
-All models have similar ACF1 values which suggests that the residuals for all models still have short range correlation.
-The MASE for ARIMA and STL-ARIMA was less than 1 which means they beat a naive “yesterday’s price” benchmark on average absolute error.
+The ARIMA model had the best RMSE, MAE, MPE, MAPE and MASE. ARIMA was the most accurate forecasting model.
+
+The worst model was ARIMAX with the worst ME, RMSE, MAE, MPE, MAPE and MASE.
+
+TBATS had the best ME but had higher MAE, MAPE, and MASE than STL-ARIMA
+
+All models had similar ACF1 values which suggests that the residuals for all models still had short range correlation.
+
+The MASE for ARIMA, STL-ARIMA and TBATS was less than 1 which means they beat a naive "yesterday's price" benchmark on average absolute error.
+
 I decided to check the residuals of the ARIMA and STL-ARIMA models and perform model refinement. I did not be continue with the worst performing models ARIMAX and TBATS.
 
 # Structural checks and Statistical diagnostics
@@ -176,26 +179,37 @@ There are 84 outliers according to Tukey’s Fences. Since energy prices are so 
 
 For both models (ARIMA and STL-ARIMA) I increased the AR component by 1, and applied a box-cox transformation to the time series data.
 I now had:
-ARIMA(4,1,1)(0,0,2)[48]
-STL-ARIMA(6,1,1)
+ARIMA model 2: ARIMA(4,1,1)(0,0,2)[48]
+STL-ARIMA model 2: STL-ARIMA(6,1,1)
+
+For another two models I increased the AR component by 1, but did not apply a box-cox transformation to the time series data. I did this because I wanted to see if the box-cox transformation of the series actually had a significant improvement on the model. These models were ARIMA model 3 and STL-ARIMA model 3.
 
 # Model assessment
-I forecast 48 trading periods for twelve months
+I forecast 48 trading periods for twelve months for my four models, ARIMA model 2, ARIMA model 3, STL-ARIMA model 2 and STL-ARIMA model 3.
 
-I made sure to apply an inverse box cox transformation on the forescasts to obtain interpretable electricity price predictions since the ARIMA 2 and STL-ARIMA 2 models were trained on a box cox transformed time series.
+I made sure to apply an inverse box cox transformation on the forescasts of ARIMA model 2 and STL-ARIMA model 2 to obtain interpretable electricity price predictions since the ARIMA 2 and STL-ARIMA 2 models were trained on a box cox transformed time series.
 
-|              | ARIMA          | ARIMA 2  | STL-ARIMA | STL-ARIMA2 |
-|--------------|----------------|----------|---------|-----------|
-| ME | 6.13    | 18.06     | 11.08    | 18.53  |
-| RMSE | 18.29 | 102.20   | 21.15  | 101.73    |
-| MAE | 12.67  | 52.88    |  16.55 | 52.67 |
-| MPE | 3.13   | -2087.01 | 8.99 | -1987.80 |
-| MAPE | 14.33 | 2115.23 | 18.40 | 2016.87 |
-| ACF1 | 0.62  | 0.90 | 0.63 | 0.91 |
+|         | ME | RMSE | MAE | MAPE | MAPE | MASE | ACF1 |
+|---------|----|------|------|-------|-------|------ |
+ARIMA     |6.56	 | 19.17  |	13.71	| 3.29	| 15.65	| 0.70	| 0.65   |
+ARIMA 2   |18.20 |	102.34	| 52.97	| -2091.39	| 2119.70	| NA	| 0.91   |
+ARIMA 3   |6.56  |	19.17	| 13.71	| 3.29	| 15.65	| 0.70 |	0.65 |
+STL_ARIMA   |12.249013 |	21.63	| 17.83	| 10.29	| 19.71	| 0.91	| 0.66	 |
+STL_ARIMA 2 |18.69 |	101.89 | 52.76 |	-1999.73 |	2028.92 |	NA	| 0.91	 |
+STL_ARIMA 3 |5.77	| 19.96 |	15.61 |	2.50 |	18.36 |	0.80 |	0.69 |
 
-The model that performed best was my original ARIMA model, my second best model was my original STL_ARIMA model.
-It seems my refinement of the models made their performance worse.
-The best model was ARIMA(3,1,1)(0,0,2)[48] and the worst model was STL-ARIMA 2
+The MASE could not be calculated for my two of the models (ARIMA 2 and STL-ARIMA 2) presumably due to the box-cox transformation I applied to the time series for those models, so I will be focusing on the other available metrics.
+
+The original ARIMA model and ARIMA model 3 had identical results which means that increasing the AR component from AR(3) to AR(4) did not significantly improve the model. The original ARIMA model and ARIMA model 3 had the best results in regards to their RMSE, MAE, MAPE, MASE and ACF1. Thesse models seem to have strong accuracy and are realiably forecasting final energy prices for 2018.
+
+The 2nd ARIMA model and the second STL-ARIMA model had the worst performance with extremely high RMSE and MAE. The models had the highest ACF1.
+Slightly higher MAE, RMSE, and MASE than ARIMA, but solid MAPE and relatively low ACF1
+
+The model that performed best was my original ARIMA model.
+
+The prior adjustments to the original ARIMA and STL-ARIMA models did not improve the ARIMA model's performance but it did improve the STL-ARIMA model's performance.
+The box-cox transformation of the series made the performance of the models much worse.
+The best model was ARIMA(3,1,1)(0,0,2)[48] and the worst models were STL-ARIMA 2 and ARIMA 2.
 
 ![Alt](Images/20.png)
 
@@ -214,19 +228,19 @@ The best model was the ARIMA model: ARIMA(3,1,1)(0,0,2)[48].
 
 Its non-seasonal component had AR(3) (which captured short term autocorrelation up to lag 3), I(1) (a first order differencing to make the data stationary), MA(1) (which corrected for noise and shocks using lag 1 residuals). Its seasonal component with a periodicity of 48 (the seasonality repeats every full day as there are 48 trading periods per day) and it did not include a seasonal AR or I (no seasonal autocorrelation or differencing) and had a seasonal MA(2) (uses forecast errors from 1 and 2 days ago (lags at 48 and 96 intervals) to adjust the current days forecast).
 
-The models mean error was 6.13 which means on average its forecasts overestimate actual prices by about 6.13 dollars per megawatt hour.
+The models mean error was 6.56 which means on average its forecasts overestimate actual prices by about 6.56 dollars per megawatt hour.
 
-The models root mean square error was 18.29 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value was probably due to how volatile the data is.
+The models root mean square error was 19.17 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value is probably due to how volatile the data is.
 
-The models mean absolute error was 12.67 which means that forecasts were off by 12.67 units on average. This was 12.6% of the annual mean, the mean energy price for 2018 was 100.53, so the mean absolute error isn't that high considering how volatile the data is.
+The models mean absolute error was 13.71 which means that forecasts were off by 13.71 units on average. This is 13.6% of the annual mean, the mean energy price for 2018 was 100.62, so the mean absolute error isn't that high considering how volatile the data is.
 
-The mean percentage data was 3.13% which means that the model tends to forecast higher electricity prices than reality.
+The mean percentage data was 3.29% which means that the model tends to forecast higher electricity prices than reality.
 
-The mean absolute percentage error was 14.34% which means that the models forecasts were off by 14.34% on average.
+The mean absolute percentage error was 15.65% which means that the models forecasts were off by 15.65% on average.
 
-The models MASE was 0.65 which is a scaled comparison to a naive model which means the ARIMA model outperforms a naive forecast.
+The models MASE was 0.70 which is a scaled comparison to a naive model which means the ARIMA model outperforms a naive forecast.
 
-The models ACF1 was 0.65 which indicates that the residuals are moderately autocorrelated so there was some structure or pattern in the data that the model did not capture.
+The models ACF1 was 0.65 which indicates that the residuals are moderately autocorrelated so there is some structure or pattern in the data that the model did not capture.
 
 The ARIMA model did better than the STL-ARIMA, ARIMAX and TBATS models which just shows that a more complex model does not equal a better performance, those other models were overfitting on the training data and not generalizing well enough to forecast the following year.
 
