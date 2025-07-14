@@ -97,8 +97,8 @@ They were all trained on a time series containing 12 months of half hourly final
 
 After forecasting with those models I obtained the accuracy metrics:
 
-|         | ME | RMSE | MAE | MAPE | MAPE | MASE | ACF1 |
-|---------|----|------|------|-------|-------|------ |
+|         | ME   | RMSE   | MAE   |  MAPE |  MAPE | MASE  | ACF1   |
+|---------|------|--------|-------|-------|-------|-------|--------|
 ARIMA     |6.56	 | 19.17  |	13.71	| 3.29	| 15.65	| 0.70	| 0.65   |
 STL_ARIMA |12.25 |	21.63	| 17.83	| 10.29	| 19.71	| 0.91	| 0.66	 |
 ARIMAX    |53.42 |	56.51	| 53.42	| 58.78	| 58.78	| 2.74	| 0.65   |
@@ -189,14 +189,14 @@ I forecast 48 trading periods for twelve months for my four models, ARIMA model 
 
 I made sure to apply an inverse box cox transformation on the forescasts of ARIMA model 2 and STL-ARIMA model 2 to obtain interpretable electricity price predictions since the ARIMA 2 and STL-ARIMA 2 models were trained on a box cox transformed time series.
 
-|         | ME | RMSE | MAE | MAPE | MAPE | MASE | ACF1 |
-|---------|----|------|------|-------|-------|------ |
-ARIMA     |6.56	 | 19.17  |	13.71	| 3.29	| 15.65	| 0.70	| 0.65   |
-ARIMA 2   |18.20 |	102.34	| 52.97	| -2091.39	| 2119.70	| NA	| 0.91   |
-ARIMA 3   |6.56  |	19.17	| 13.71	| 3.29	| 15.65	| 0.70 |	0.65 |
-STL_ARIMA   |12.249013 |	21.63	| 17.83	| 10.29	| 19.71	| 0.91	| 0.66	 |
-STL_ARIMA 2 |18.69 |	101.89 | 52.76 |	-1999.73 |	2028.92 |	NA	| 0.91	 |
-STL_ARIMA 3 |5.77	| 19.96 |	15.61 |	2.50 |	18.36 |	0.80 |	0.69 |
+|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  |
+|-----------|------|--------|-------|----------|---------|-------|-------|
+ARIMA       |6.56	 | 19.17  |	13.71	| 3.29	   | 15.65	 | 0.70	 | 0.65  |
+ARIMA 2     |18.20 | 102.34	| 52.97	| -2091.39 | 2119.70 | NA	   | 0.91  |
+ARIMA 3     |6.56  | 19.17	| 13.71	| 3.29	   | 15.65	 | 0.70  |	0.65 |
+STL_ARIMA   |12.25 | 21.63	| 17.83	| 10.29	   | 19.71	 | 0.91	 | 0.66	 |
+STL_ARIMA 2 |18.69 | 101.89 | 52.76 |	-1999.73 | 2028.92 |	NA	 | 0.91	 |
+STL_ARIMA 3 |5.77	 | 19.96  |	15.61 |	2.50     | 18.36   |	0.80 |	0.69 |
 
 The MASE could not be calculated for my two of the models (ARIMA 2 and STL-ARIMA 2) presumably due to the box-cox transformation I applied to the time series for those models, so I will be focusing on the other available metrics.
 
