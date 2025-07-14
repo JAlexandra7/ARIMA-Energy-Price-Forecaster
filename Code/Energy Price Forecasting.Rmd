@@ -56,7 +56,7 @@ summary(Training_set)
 
 There are four variables TradingDate, TradingPeriod, PointOfConnection, DollarsPerMegawattHour.
 
-There are 17520 observations (rows).
+There are 17472 observations (rows).
 
 The TradingDate variable is a date object ranging from 2017-01-01 to 2017-12-31.
 
@@ -72,15 +72,24 @@ I can see that TradingPeriod has a max value of 50 which shouldn't be possible a
 Training_set[Training_set$TradingPeriod > 48, ]
 ```
 
-There are 2 observations where the trading period is larger than 48, since NZ's electricity market has 48 trading periods a day (each representing a 30 minute interval) these observations could be errors. Both are on 2017-04-02.
+There are 2 observations where the trading period is larger than 48, since NZ's electricity market has 48 trading periods a day (each representing a 30 minute interval) these observations are unusual. Both are on 2017-04-02 which is when daylight savings ended and clocks were turned back one hour, meaning there was an extra hour for that day, resulting in two more 30 minute trading periods
 
-On 2017-04-02 daylight savings ended and clocks were turned back one hour, meaning there was an extra hour for that day, resulting in two more 30 minute trading periods
+```{r}
+Training_set %>% mutate(TradingDate = as.Date(TradingDate)) %>% count(TradingDate) %>% filter(n < 48)
+```
+I can see that on 2017-09-24 there were two less trading periods. This is also when daylight savings time starts for 2017.
 
-I am going to remove these observations from the dataset as I want to maintain a consistent daily structure:
+I am going to remove these observations from the dataset as I want to maintain a consistent daily structure (fixed periodicity) for ARIMA:
 ```{r}
 ErrorIndices <- which(Training_set$TradingPeriod > 48)
 Training_set <- Training_set[-ErrorIndices, ]
 ```
+
+```{r}
+Daylight <- which(Training_set$TradingDate == "2017-09-24")
+Training_set <- Training_set[-Daylight, ]
+```
+
 
 ```{r}
 sapply(Training_set, anyNA)
@@ -113,12 +122,12 @@ There are no negative values for DollarsPerMegawattHour.
 ```{r}
 Training_set[Training_set$DollarsPerMegawattHour > 400,]
 ```
-There are 34 observations where the DollarsPerMegawattHour value was larger than the 400, which in a data set of 17158 observations is very few.
+There are 34 observations where the DollarsPerMegawattHour value was larger than the 400, which in a data set of 17472 observations is very few.
 
 ```{r}
 mean(Training_set$DollarsPerMegawattHour)
 ```
-The mean DollarsPerMegawattHour for year 2017 at point connection ABY0111 is 78.57 (round to 2.dp)
+The mean DollarsPerMegawattHour for year 2017 at point connection ABY0111 is 78.71 (round to 2.dp)
 
 Time series plot:
 ```{r, warning=FALSE}
@@ -220,9 +229,9 @@ The p-value is less than the significance level of 0.5, I reject the null hypoth
 
 KPSS test:
 
-Null hypothesis: is stationary
+Null hypothesis: is trend stationary
 
-Alternative hypothesis: isn't stationary
+Alternative hypothesis: non-stationary (has a unit root)
 
 ```{r}
 kpss_result <- kpss.test(first_order_diff, null = "Trend")
@@ -272,7 +281,7 @@ The third panel shows a smooth and mild upward movement suggests a weak long-ter
 
 The fourth panel shows that the remainder is spiky and uneven, it contains outliers and volatility that is not explained by seasonality or trend.
 
-Fitting an STL - ARIMA to seasonally adjusted series:
+Fitting an STL-ARIMA to seasonally adjusted series:
 ```{r}
 STL_ARIMA_model1 <- stlm(time_series_data, method = "arima")
 ```
@@ -327,6 +336,18 @@ test_data$TradingDate <- as.Date(test_data$TradingDate)
 
 ```
 
+Because I removed daylight savings effected days from my training set then I am also going to remove these days from my test set. Daylight savings for 2018 starts on 2018-09-30
+
+```{r}
+ErrorIndices2 <- which(test_data$TradingPeriod > 48)
+test_data <- test_data[-ErrorIndices2, ]
+```
+
+```{r}
+Daylight2 <- which(test_data$TradingDate == "2018-09-30")
+test_data <- test_data[-Daylight2, ]
+```
+
 Making it a time series object:
 ```{r}
 price_vector2 <- as.numeric(test_data$DollarsPerMegawattHour)
@@ -335,7 +356,7 @@ Test_time_series <- ts(price_vector2, start = c(2018, 1), frequency = 48)
 
 ## ARIMA
 ```{r}
-forecast_raw_ARIMA_1 <- forecast(ARIMA_model1, h = 17520)
+forecast_raw_ARIMA_1 <- forecast(ARIMA_model1, h = 17472)
 ```
 
 ```{r}
@@ -345,7 +366,7 @@ forecast_raw_ARIMA <- ts(forecast_raw_ARIMA_1, start = c(2018, 1), frequency = 4
 ## STL-ARIMA
 I'm going to forecast 48 trading periods for 12 months
 ```{r}
-forecast12months <- forecast(STL_ARIMA_model1, h = 17520)
+forecast12months <- forecast(STL_ARIMA_model1, h = 17472)
 ```
 
 ```{r}
@@ -370,7 +391,7 @@ xreg_future <- cbind(Day_of_Week, Is_Weekend, Month, Hour_of_Day, Is_peak)
 
 forecasting:
 ```{r}
-forecast12months2 <- forecast(ARIMAX_model1, h = 17520, xreg = xreg_future)
+forecast12months2 <- forecast(ARIMAX_model1, h = 17472, xreg = xreg_future)
 ```
 
 ```{r}
@@ -381,7 +402,7 @@ forecast_raw_ARIMAX <- ts(forecast12months2, start = c(2018, 1), frequency = 48)
 
 Forecasting:
 ```{r}
-forecast_tbats <- forecast(TBATS_model1, h = 17520)
+forecast_tbats <- forecast(TBATS_model1, h = 17472)
 forecast_raw_TBATS <- ts(forecast_tbats, start = c(2018, 1), frequency = 48)
 ```
 
@@ -407,15 +428,15 @@ acc_df <- map_df(acc_list, ~ as.data.frame(.x)["Test set", ], .id = "Model")
 acc_df
 ```
 
-The ARIMA model has the best ME, RMSE, MAE, MPE, MAPE and MASE. ARIMA was the most accurate model.
+The ARIMA model has the best RMSE, MAE, MPE, MAPE and MASE. ARIMA was the most accurate forecasting model.
 
 The worst model was ARIMAX with the worst ME, RMSE, MAE, MPE, MAPE and MASE.
 
-The second worst model was TBATS.
+TBATS had the best ME but had higher MAE, MAPE, and MASE than STL-ARIMA
 
 All models have similar ACF1 values which suggests that the residuals for all models still have short range correlation.
 
-The MASE for ARIMA and STL-ARIMA is less than 1 which means they beat a naive "yesterday's price" benchmark on average absolute error.
+The MASE for ARIMA, STL-ARIMA and TBATS iss less than 1 which means they beat a naive "yesterday's price" benchmark on average absolute error.
 
 I'm going to check the residuals of the ARIMA and STL-ARIMA models and do some model refinement. I will not be continuing with the worst performing models ARIMAX and TBATS.
 
@@ -579,13 +600,29 @@ STL_ARIMA_model2 <- stlm(ts_bc, s.window = 48, robust = TRUE,
 
 ```
 
+For both of these models I have only increased the AR component by 1, and I have not applied a box-cox transformation to the time series data.
+
+Fitting ARIMA:
+```{r}
+ARIMA_model3 <- Arima(time_series_data, order = c(4,1,1), # Non-seasonal ARIMA(p,d,q)
+             seasonal = list(order = c(0, 0, 2), period = 48),  # Seasonal ARIMA(P,D,Q)[S]
+             include.constant = FALSE)  # Excluding constant since first order differencing is used
+```
+
+Fitting an STL - ARIMA to seasonally adjusted series:
+```{r}
+STL_ARIMA_model3 <- stlm(time_series_data, s.window = 48, robust = TRUE,
+                         modelfunction = function(x) Arima(x, order = c(6, 1, 1)))
+
+```
+
 # Final Forecasting and reporting
 
-I'm going to forecast 48 trading periods for six months
+I'm going to forecast 48 trading periods for twelve months
 
-ARIMA:
+ARIMA 2nd model:
 ```{r}
-forecast12months_A <- forecast(ARIMA_model2, h = 17520)
+forecast12months_A <- forecast(ARIMA_model2, h = 17472)
 ```
 
 Returning to the original scale (boxcox scale was used for training the ARIMA model) after forecasting to obtain interpretable electricity price predictions.
@@ -597,9 +634,9 @@ forecast_raw_A <- InvBoxCox(forecast12months_A$mean, lambda) - 1
 forecast_raw_ARIMA2 <- ts(forecast_raw_A, start = c(2018, 1), frequency = 48)
 ```
 
-STL-ARIMA:
+STL-ARIMA 2nd model:
 ```{r}
-forecast12months_S <- forecast(STL_ARIMA_model2, h = 17520)
+forecast12months_S <- forecast(STL_ARIMA_model2, h = 17472)
 ```
 
 Returning to the original scale (boxcox scale was used for training the STL-ARIMA model) after forecasting to obtain interpretable electricity price predictions.
@@ -607,35 +644,62 @@ Returning to the original scale (boxcox scale was used for training the STL-ARIM
 forecast_raw_S <- InvBoxCox(forecast12months_S$mean, lambda) - 1
 ```
 
-
 ```{r}
 forecast_raw_STL2 <- ts(forecast_raw_S, start = c(2018, 1), frequency = 48)
+```
+
+
+
+STL-ARIMA 3rd model:
+```{r}
+forecast12months_S3 <- forecast(STL_ARIMA_model3, h = 17472)
+```
+
+```{r}
+forecast_raw_STL3 <- ts(forecast12months_S3, start = c(2018, 1), frequency = 48)
+```
+
+ARIMA 3rd model:
+```{r}
+forecast12months_A3 <- forecast(ARIMA_model3, h = 17472)
+```
+
+```{r}
+forecast_raw_ARIMA3 <- ts(forecast12months_A3, start = c(2018, 1), frequency = 48)
 ```
 
 # Overall Model Comparison
 ```{r}
 ARIMA_acc2 <- accuracy(forecast_raw_ARIMA2, Test_time_series)
 STL_ARIMA_acc2 <- accuracy(forecast_raw_STL2, Test_time_series)
+ARIMA_acc3 <- accuracy(forecast_raw_ARIMA3, Test_time_series)
+STL_ARIMA_acc3 <- accuracy(forecast_raw_STL3, Test_time_series)
 ```
 
 ```{r}
-acc_list2 <- list(ARIMA = ARIMA_acc, ARIMA_2 = ARIMA_acc2, STL_ARIMA = STL_ARIMA_acc, STL_ARIMA_2 = STL_ARIMA_acc2)
+acc_list2 <- list(ARIMA = ARIMA_acc, ARIMA_2 = ARIMA_acc2, ARIMA_3 = ARIMA_acc3, 
+                  STL_ARIMA = STL_ARIMA_acc, STL_ARIMA_2 = STL_ARIMA_acc2, STL_ARIMA_3 = STL_ARIMA_acc3)
 
 acc_df2 <- map_df(acc_list2, ~ as.data.frame(.x)["Test set", ], .id = "Model")
 
 acc_df2
 ```
-The MASE could not be calculated for my two most recent models presumably due to the box-cox transformation I applied to the time series for those models, so I will be focusing on the other available metrics.
+The MASE could not be calculated for my two of the models (ARIMA 2 and STL-ARIMA 2) presumably due to the box-cox transformation I applied to the time series for those models, so I will be focusing on the other available metrics.
 
-The model that performed best was my original ARIMA model, my second best model was my original STL_ARIMA model.
+The original ARIMA model and ARIMA model 3 had identical results which means that increasing the AR component from AR(3) to AR(4) did not significantly improve the model. The original ARIMA model and ARIMA model 3 had the best results in regards to their RMSE, MAE, MAPE, MASE and ACF1. Thesse models seem to have strong accuracy and are realiably forecasting final energy prices for 2018.
 
-It seems my refinement of the models made their performance worse.
+The 2nd ARIMA model and the second STL-ARIMA model had the worst performance with extremely high RMSE and MAE. The models had the highest ACF1.
+Slightly higher MAE, RMSE, and MASE than ARIMA, but solid MAPE and relatively low ACF1
 
-The best model is ARIMA and the worst model is STL-ARIMA 2
+The model that performed best was my original ARIMA model.
+
+The prior adjustments to the original ARIMA and STL-ARIMA models did not improve the ARIMA model's performance but it did improve the STL-ARIMA model's performance.
+The box-cox transformation of the series made the performance of the models much worse.
+The best model was ARIMA(3,1,1)(0,0,2)[48] and the worst models were STL-ARIMA 2 and ARIMA 2.
 
 ```{r}
 start_time     <- as.POSIXct("2018-01-01 00:00:00", tz = "UTC")
-times_forecast <- seq(start_time, by = "30 min", length.out = 17520)
+times_forecast <- seq(start_time, by = "30 min", length.out = 17472)
 
 Test_time_series2 <- ts(test_data$DollarsPerMegawattHour, frequency = 48, start = c(2018, 1))
 df_actual <- data.frame(Date = times_forecast, Value = as.numeric(Test_time_series2), Type = "Actual")
@@ -679,17 +743,17 @@ The best model was the ARIMA model: ARIMA(3,1,1)(0,0,2)[48].
 
 Its non-seasonal component had AR(3) (which captured short term autocorrelation up to lag 3), I(1) (a first order differencing to make the data stationary), MA(1) (which corrected for noise and shocks using lag 1 residuals). Its seasonal component with a periodicity of 48 (the seasonality repeats every full day as there are 48 trading periods per day) and it did not include a seasonal AR or I (no seasonal autocorrelation or differencing) and had a seasonal MA(2) (uses forecast errors from 1 and 2 days ago (lags at 48 and 96 intervals) to adjust the current days forecast).
 
-The models mean error was 6.13 which means on average its forecasts overestimate actual prices by about 6.13 dollars per megawatt hour.
+The models mean error was 6.56 which means on average its forecasts overestimate actual prices by about 6.56 dollars per megawatt hour.
 
-The models root mean square error was 18.29 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value is probably due to how volatile the data is.
+The models root mean square error was 19.17 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value is probably due to how volatile the data is.
 
-The models mean absolute error was 12.67 which means that forecasts were off by 12.67 units on average. This is 12.6% of the annual mean, the mean energy price for 2018 was 100.53, so the mean absolute error isn't that high considering how volatile the data is.
+The models mean absolute error was 13.71 which means that forecasts were off by 13.71 units on average. This is 13.6% of the annual mean, the mean energy price for 2018 was 100.62, so the mean absolute error isn't that high considering how volatile the data is.
 
-The mean percentage data was 3.13% which means that the model tends to forecast higher electricity prices than reality.
+The mean percentage data was 3.29% which means that the model tends to forecast higher electricity prices than reality.
 
-The mean absolute percentage error was 14.34% which means that the models forecasts were off by 14.34% on average.
+The mean absolute percentage error was 15.65% which means that the models forecasts were off by 15.65% on average.
 
-The models MASE was 0.65 which is a scaled comparison to a naive model which means the ARIMA model outperforms a naive forecast.
+The models MASE was 0.70 which is a scaled comparison to a naive model which means the ARIMA model outperforms a naive forecast.
 
 The models ACF1 was 0.65 which indicates that the residuals are moderately autocorrelated so there is some structure or pattern in the data that the model did not capture.
 
