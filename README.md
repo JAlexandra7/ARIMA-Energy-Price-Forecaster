@@ -79,8 +79,7 @@ Since this resembles an AR(1) structure still, when I fitted the ARIMA model I i
 
 # Stationarity Diagnostics: ADF, KPSS & Phillips–Perron
 
-I performed an Augmented Dickey-Fuller test and Phillips–Perron test both of which had a p-value of less than 0.01, due to the small p-value I concluded that the
-differenced series was stationary. The KPSS test had a p-value larger of 0.5 as a result I concluded that the differenced series was stationary.
+I performed an Augmented Dickey-Fuller test and Phillips–Perron test both of which had a p-value of less than 0.01, due to the small p-value I concluded that the differenced series was stationary. The KPSS test had a p-value larger of 0.5 as a result I concluded that the differenced series was stationary.
 
 # Accuracy metrics
 
@@ -117,11 +116,9 @@ I decided to check the residuals of the ARIMA and STL-ARIMA models and perform m
 # Structural checks and Statistical diagnostics
 ## Autocorrelation check with Ljung Box test, acf and pacf plots:
 ### ARIMA model
-The p-value from the Ljung Box test was extremely small as a result I rejected the null hypothesis that there was no autocorrelation in the residuals
-and conclude that there was autocorrelation in the residuals. This means that the ARIMA model hadn’t fully captured the time-dependent structure in the series.
+The p-value from the Ljung Box test was extremely small as a result I rejected the null hypothesis that there was no autocorrelation in the residuals and concluded that there was autocorrelation in the residuals. This means that the ARIMA model hadn’t fully captured the time-dependent structure in the series.
 
-For Anderson-Darling normality test the p-value was very small, so I rejected the null hypothesis that the residuals are normally distributed and concluded
-that the residuals were non-normal.
+For Anderson-Darling normality test the p-value was very small, so I rejected the null hypothesis that the residuals are normally distributed and concluded that the residuals were non-normal.
 
 Checking for constant variance:
 ![Alt](Images/8.png)
@@ -140,11 +137,9 @@ Most lags fell within the blue dashed confidence bands, meaning their partial au
 There are a few spikes outside of the confidence bounds, particularly at lag 1 suggesting short-term autocorrelation. This implied that the AR term (p) was slightly under-specified. I tried increasing the AR component to try and capture the remaining autocorrelation.
 
 ### STL-ARIMA model
-The p-value from the Ljung Box test was extremely small as a result I rejected the null hypothesis that there was no autocorrelation in the residuals
-and conclude that there was autocorrelation in the residuals. This means that the STL-ARIMA model hadn’t fully captured the time-dependent structure in the series.
+The p-value from the Ljung Box test was extremely small as a result I rejected the null hypothesis that there was no autocorrelation in the residuals and concluded that there was autocorrelation in the residuals. This means that the STL-ARIMA model hadn’t fully captured the time-dependent structure in the series.
 
-For Anderson-Darling normality test the p-value was very small, so I rejected the null hypothesis that the residuals are normally distributed and concluded
-that the residuals were non-normal.
+For Anderson-Darling normality test the p-value was very small, so I rejected the null hypothesis that the residuals were normally distributed and concluded that the residuals were non-normal.
 
 ![Alt](Images/13.png)
 
