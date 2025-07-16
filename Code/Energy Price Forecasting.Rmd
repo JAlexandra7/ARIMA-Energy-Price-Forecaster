@@ -21,6 +21,9 @@ library(car)
 library(lubridate)
 library(purrr)
 library(caret)
+library(FinTS)
+library(rugarch)
+library(tibble)
 library(forecast)
 ```
 
@@ -56,7 +59,7 @@ summary(Training_set)
 
 There are four variables TradingDate, TradingPeriod, PointOfConnection, DollarsPerMegawattHour.
 
-There are 17472 observations (rows).
+There are 17520 observations (rows).
 
 The TradingDate variable is a date object ranging from 2017-01-01 to 2017-12-31.
 
@@ -79,15 +82,51 @@ Training_set %>% mutate(TradingDate = as.Date(TradingDate)) %>% count(TradingDat
 ```
 I can see that on 2017-09-24 there were two less trading periods. This is also when daylight savings time starts for 2017.
 
-I am going to remove these observations from the dataset as I want to maintain a consistent daily structure (fixed periodicity) for ARIMA:
+I am going to remove the two extra trading periods for 2017-04-02 from the dataset as I want to maintain a consistent daily structure (fixed periodicity) for ARIMA:
 ```{r}
 ErrorIndices <- which(Training_set$TradingPeriod > 48)
 Training_set <- Training_set[-ErrorIndices, ]
 ```
 
+I'm going to use linear interpolation to fill in the 2 trading period gap for 2017-09-24
 ```{r}
-Daylight <- which(Training_set$TradingDate == "2017-09-24")
-Training_set <- Training_set[-Daylight, ]
+# finding the row just before period 47 on 2017-09-24
+i_prev <- which(Training_set$TradingDate == as.Date("2017-09-24") &
+                Training_set$TradingPeriod == 46)
+
+# Computing the two interpolated values: 
+# Extracting the two known prices
+price_prev <- Training_set$DollarsPerMegawattHour[i_prev]
+price_next <- Training_set$DollarsPerMegawattHour[i_prev + 1]
+
+# runing approx() over the X = {46,49} → Y = {prev,next}, get Y at Xout = {47,48}
+interp <- approx(
+  x    = c(46, 49),
+  y    = c(price_prev, price_next),
+  xout = c(47, 48),
+  method = "linear"
+)
+
+# interp$x == c(47,48); interp$y == interpolated prices
+interp
+```
+
+```{r}
+new_rows <- tibble(
+  TradingDate             = as.Date("2017-09-24"),
+  TradingPeriod           = interp$x,
+  PointOfConnection       = "ABY0111",
+  DollarsPerMegawattHour  = interp$y
+)
+
+# bind back and re-sort
+Training_set <- bind_rows(Training_set, new_rows) %>%
+  arrange(TradingDate, TradingPeriod)
+
+# view the gap now filled
+filter(Training_set,
+       TradingDate == as.Date("2017-09-24"),
+       TradingPeriod %in% 46:49)
 ```
 
 
@@ -122,7 +161,7 @@ There are no negative values for DollarsPerMegawattHour.
 ```{r}
 Training_set[Training_set$DollarsPerMegawattHour > 400,]
 ```
-There are 34 observations where the DollarsPerMegawattHour value was larger than the 400, which in a data set of 17472 observations is very few.
+There are 34 observations where the DollarsPerMegawattHour value was larger than the 400, which in a data set of 17520 observations is very few.
 
 ```{r}
 mean(Training_set$DollarsPerMegawattHour)
@@ -188,7 +227,7 @@ Conclusion:
 
 All of the above information from the ACF and PACF plots suggests that the data is non-stationary and that there could be a seasonal component to the data.
 
-I am going to apply first order differencing to the data to make the data stationary, as stationary data is a requirement of ARIMA.
+I am going to apply first order differencing to the data to make the data stationary, as a stationary time series is a requirement of ARIMA.
 
 ```{r}
 first_order_diff <- diff(time_series_data)
@@ -214,6 +253,8 @@ The decay after the first lag also supports that the first order differencing ha
 Since this resembles an AR(1) structure still, when I fit the ARIMA model I will include an AR(1) component to model the autoregressive behavior.
 
 # Stationarity Diagnostics: ADF, KPSS & Phillips–Perron
+
+A stationary time series is an assumption of ARIMA models, I'm going to check that the time series is stationary (eg. the time series mean, variance and autocorrelation structure are constant over time).
 
 Augmented Dickey-Fuller test:
 
@@ -255,7 +296,7 @@ The ADF, KPSS and Phillips–Perron tests all concluded that the first order dif
 
 # Fitting models
 ## ARIMA
-I'm using auto.arima with d = 1 (first order differencing) to find a suitable starting ARIMA model that I can manually adjust later.
+I'm using auto.arima with d = 1 (first order differencing) to find a suitable starting ARIMA model that I can manually adjust later based on its residuals.
 ```{r}
 ARIMA_model1 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2)
 ```
@@ -344,8 +385,48 @@ test_data <- test_data[-ErrorIndices2, ]
 ```
 
 ```{r}
-Daylight2 <- which(test_data$TradingDate == "2018-09-30")
-test_data <- test_data[-Daylight2, ]
+test_data %>% mutate(test_data = as.Date(TradingDate)) %>% count(TradingDate) %>% filter(n < 48)
+```
+
+I'm going to use linear interpolation to fill in the 2 trading period gap for 2018-09-30
+```{r}
+# finding the row just before period 47 on 2017-09-24
+i_prev <- which(test_data$TradingDate == as.Date("2018-09-30") &
+                test_data$TradingPeriod == 46)
+
+# Computing the two interpolated values: 
+# Extracting the two known prices
+price_prev <- test_data$DollarsPerMegawattHour[i_prev]
+price_next <- test_data$DollarsPerMegawattHour[i_prev + 1]
+
+# runing approx() over the X = {46,49} → Y = {prev,next}, get Y at Xout = {47,48}
+interp <- approx(
+  x    = c(46, 49),
+  y    = c(price_prev, price_next),
+  xout = c(47, 48),
+  method = "linear"
+)
+
+# interp$x == c(47,48); interp$y == interpolated prices
+interp
+```
+
+```{r}
+new_rows <- tibble(
+  TradingDate             = as.Date("2018-09-30"),
+  TradingPeriod           = interp$x,
+  PointOfConnection       = "ABY0111",
+  DollarsPerMegawattHour  = interp$y
+)
+
+# bind back and re-sort
+test_data <- bind_rows(test_data, new_rows) %>%
+  arrange(TradingDate, TradingPeriod)
+
+# view the gap now filled
+filter(test_data,
+       TradingDate == as.Date("2018-09-30"),
+       TradingPeriod %in% 46:49)
 ```
 
 Making it a time series object:
@@ -356,7 +437,7 @@ Test_time_series <- ts(price_vector2, start = c(2018, 1), frequency = 48)
 
 ## ARIMA
 ```{r}
-forecast_raw_ARIMA_1 <- forecast(ARIMA_model1, h = 17472)
+forecast_raw_ARIMA_1 <- forecast(ARIMA_model1, h = 17520)
 ```
 
 ```{r}
@@ -366,7 +447,7 @@ forecast_raw_ARIMA <- ts(forecast_raw_ARIMA_1, start = c(2018, 1), frequency = 4
 ## STL-ARIMA
 I'm going to forecast 48 trading periods for 12 months
 ```{r}
-forecast12months <- forecast(STL_ARIMA_model1, h = 17472)
+forecast12months <- forecast(STL_ARIMA_model1, h = 17520)
 ```
 
 ```{r}
@@ -391,7 +472,7 @@ xreg_future <- cbind(Day_of_Week, Is_Weekend, Month, Hour_of_Day, Is_peak)
 
 forecasting:
 ```{r}
-forecast12months2 <- forecast(ARIMAX_model1, h = 17472, xreg = xreg_future)
+forecast12months2 <- forecast(ARIMAX_model1, h = 17520, xreg = xreg_future)
 ```
 
 ```{r}
@@ -402,7 +483,7 @@ forecast_raw_ARIMAX <- ts(forecast12months2, start = c(2018, 1), frequency = 48)
 
 Forecasting:
 ```{r}
-forecast_tbats <- forecast(TBATS_model1, h = 17472)
+forecast_tbats <- forecast(TBATS_model1, h = 17520)
 forecast_raw_TBATS <- ts(forecast_tbats, start = c(2018, 1), frequency = 48)
 ```
 
@@ -447,7 +528,7 @@ Autocorrelation check with Ljung Box test, acf and pacf plots:
 ```{r}
 checkresiduals(ARIMA_model1)
 ```
-The p-value is extremely small I reject the null hypothesis that there is no autocorrelation in the residuals and conclude that there is autocorrelation in the residuals. This means that the TBATS model hasn't fully captured the time-dependent structure in the series.
+The p-value is extremely small I reject the null hypothesis that there is no autocorrelation in the residuals and conclude that there is autocorrelation in the residuals. This means that the TBATS model hasn't fully captured the time dependent structure in the series.
 
 Anderson-Darling normality test:
 ```{r}
@@ -455,7 +536,13 @@ ad.test(residuals(ARIMA_model1))
 ```
 The p-value is very small, I reject the null hypothesis that the residuals are normally distributed and conclude that the residuals are non-normal.
 
-Checking for constant variance and mean zero in plot:
+ARCH test on residuals:
+```{r}
+ArchTest(residuals(ARIMA_model1), lags = 48)
+```
+The p-value is much smaller than 0.05 which means I reject H0 (that there is no ARCH effect (residuals are homoskedastic)) and conclude that there is evidence of heteroskedasticity
+
+Checking for constant variance in plot:
 ```{r}
 plot(residuals(ARIMA_model1) ~ fitted(ARIMA_model1))
 ```
@@ -463,10 +550,18 @@ As the fitted values increase, the residuals fan out, showing increasing varianc
 
 There's a tight cluster around zero residuals for lower fitted values.
 
-Checking mean is reasonably close to zero:
+Due to these results I'm going to try fitting an ARIMA-GARCH model and see how its forecasting accuracy compares to my ARIMA and STL-ARIMA models. I'm choosing a GARCH model because its useful for capturing volatility clustering in time series data, particularly when the residuals show heteroskedasticity. By modelling the conditional variance it accounts for the changes in volatility over time.
+
+Checking mean is reasonably close to zero with a one sample t-test:
 ```{r}
-mean(residuals(ARIMA_model1))
+t.test(residuals(ARIMA_model1), mu = 0)
+
 ```
+The mean of the residuals is 0.023 
+
+The p-value of the one sample t-test is 0.8714, there is not enough evidence to reject the null hypothesis, I conclude that the mean of the residuals is equal to zero.
+
+This tells me the model is unbiased, with residuals (errors) centered around 0. It also tells me that the models forecasts aren't systematically over or under predicting.
 
 ```{r}
 acf(residuals(ARIMA_model1))
@@ -480,7 +575,34 @@ pacf(residuals(ARIMA_model1))
 ```
 Most lags fall within the blue dashed confidence bands, meaning their partial autocorrelations aren’t statistically significant.
 
-There are a few spikes outside of the confidence bounds, particularly at lag 1 suggesting hort-term autocorrelation. This implies that the AR term (p) is slightly under-specified. I am going to try increasing the AR component to try and capture the remaining autocorrelation.
+There are a few spikes outside of the confidence bounds, particularly at lag 1 suggesting short-term autocorrelation. This implies that the AR term (p) is slightly under-specified. I am going to try increasing the AR component to try and capture the remaining autocorrelation.
+
+Checking that the time series is invertible (eg. if its errors can be represented as a weighted sum of past observations)
+
+```{r}
+ARIMA_model1$coef
+```
+The MA term ma1 and seasonal MA terms sma1 and sma2 all have absolute values less than 1, so the invertibility condition is satisfied.
+
+However the MA term ma1 is -0.97 which is quite close to 1. This isn't too concerning since the residuals don't appear to have any autocorrelation or patterns, and there was no warning from R when fitting the model (R can give a warning "possible non-invertible MA part")
+
+I'm going to check the roots of the MA polynomial (All roots should be outside the unit circle (modulus > 1) for the model to be invertible if the model violates invertibility).
+
+```{r}
+ma_coefs <- c(1, -ARIMA_model1$coef["ma1"])  # Inverting sign for root checking
+Mod(polyroot(ma_coefs))  # Gives modulus of each root (polyroot gives the complex roots)
+```
+
+I'm checking the seasonal MA separately from the non seasonal MA because the invertibility condition must hold for both polynomials (non seasonal and seasonal) independently.
+
+```{r}
+sma_coefs <- c(1, -ARIMA_model1$coef["sma1"], -ARIMA_model1$coef["sma2"])
+Mod(polyroot(sma_coefs))
+```
+
+For invertibility, the modulus (absolute value) of all roots must be larger than 1.
+
+All of these are well outside the unit circle (i.e. modulus > 1), which means the ARIMA model satisfies the invertibility condition for both the non-seasonal and seasonal MA components.
 
 ## STL-ARIMA
 ```{r}
@@ -502,10 +624,14 @@ As the fitted values increase, the residuals fan out, showing increasing varianc
 
 There's a tight cluster around zero residuals for lower fitted values.
 
-Checking mean is reasonably close to zero:
+Checking mean is reasonably close to zero with a one sample t-test:
 ```{r}
-mean(residuals(STL_ARIMA_model1))
+t.test(residuals(STL_ARIMA_model1), mu = 0)
+
 ```
+The mean of the residuals is 0.015 
+
+The p-value of the one sample t-test is 0.9019, there is not enough evidence to reject the null hypothesis, I conclude that the mean of the residuals is equal to zero.
 
 ```{r}
 acf(residuals(STL_ARIMA_model1))
@@ -518,6 +644,27 @@ pacf(residuals(STL_ARIMA_model1))
 There are significant spikes outside the confidence bands, this suggests that there are lags that aren't captured by my current AR structure.
 
 I am going to increase the AR component for the model.
+
+Checking that the time series is invertible (eg. if its errors can be represented as a weighted sum of past observations)
+
+```{r}
+arima_part <- STL_ARIMA_model1$model
+arima_part$coef
+```
+The MA term ma1 has an absolute value of less than 1, so the invertibility condition is satisfied.
+
+However the MA term ma1 is -0.96 which is quite close to 1. This isn't too concerning since the residuals don't appear to have any autocorrelation or patterns, and there was no warning from R when fitting the model.
+
+I'm going to check the roots of the MA polynomial (All roots should be outside the unit circle (modulus > 1) for the model to be invertible if the model violates invertibility).
+
+```{r}
+ma_coefs <- c(1, -arima_part$coef["ma1"])  # Inverting sign for root checking
+Mod(polyroot(ma_coefs))  # Gives modulus of each root (polyroot gives the complex roots)
+```
+
+For invertibility, the modulus (absolute value) of all roots must be larger than 1.
+
+Since the absolute value of the root is outside the unit circle (i.e. modulus > 1), this means the ARIMA part of the STL-ARIMA model satisfies the invertibility condition for both the MA components.
 
 # Model refinement
 Applying a box cox transformation to the data to deal with non-normality:
@@ -616,13 +763,80 @@ STL_ARIMA_model3 <- stlm(time_series_data, s.window = 48, robust = TRUE,
 
 ```
 
+Fitting an ARIMA-GARCH model:
+```{r}
+spec <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model     = list(armaOrder = c(4, 1), include.mean = TRUE), # AR(4) and MA(1)
+  distribution.model = "norm"
+)
+
+```
+Since GARCH models don't handle differencing internally I'm applied a first order differencing to my time series prior to fitting the model.
+
+I'm starting with a simple ARIMA-GARCH model with 1 GARCH term (lagged conditional variances) and 1 ARCH term (lagged squared residuals).
+
+If the GARCH model doesn't have high forecasting accuracy I'll try setting distribution.model to "std" for Student-t (for heavy tails) and adjusting the GARCH order
+
+```{r}
+GARCH_model <- ugarchfit(spec = spec, data = first_order_diff)
+```
+
+```{r}
+show(GARCH_model)
+```
+I have: sGARCH(1,1) and ARFIMA(4,1,1) (note d = 1 because I fit first order differencing to data prior to fitting model)
+
+Comparing the simple ARIMA-GARCH with ARIMA-GARCH models with higher GARCH and ARCH terms.
+```{r}
+spec2 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 2)),
+  mean.model     = list(armaOrder = c(4, 1), include.mean = TRUE), # AR(4) and MA(1)
+  distribution.model = "norm"
+)
+GARCH_model2 <- ugarchfit(spec = spec2, data = first_order_diff)
+```
+
+```{r}
+spec3 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(2, 1)),
+  mean.model     = list(armaOrder = c(4, 1), include.mean = TRUE), # AR(4) and MA(1)
+  distribution.model = "norm"
+)
+GARCH_model3 <- ugarchfit(spec = spec3, data = first_order_diff)
+```
+
+```{r}
+spec4 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(2, 2)),
+  mean.model     = list(armaOrder = c(4, 1), include.mean = TRUE), # AR(4) and MA(1)
+  distribution.model = "norm"
+)
+GARCH_model4 <- ugarchfit(spec = spec4, data = first_order_diff)
+```
+
+Picking best GARCH model to move forward with:
+
+```{r}
+ic1 <- infocriteria(GARCH_model)
+ic2 <- infocriteria(GARCH_model2)
+ic3 <- infocriteria(GARCH_model3)
+ic4 <- infocriteria(GARCH_model4)
+data.frame(
+  Model = c("GARCH(1,1)", "GARCH(1,2)", "GARCH(2,1)", "GARCH(2,2)"),
+  AIC = c(ic1[1], ic2[1], ic3[1], ic4[1]),
+  BIC = c(ic1[2], ic2[2], ic3[2], ic4[2])
+)
+```
+The ARIMA-GARCH model with GARCH(1,2) had the lowest AIC and BIC, meaning it is the best ARIMA-GARCH model, I will move forward with that model for forecasting.
+
 # Final Forecasting and reporting
 
 I'm going to forecast 48 trading periods for twelve months
 
 ARIMA 2nd model:
 ```{r}
-forecast12months_A <- forecast(ARIMA_model2, h = 17472)
+forecast12months_A <- forecast(ARIMA_model2, h = 17520)
 ```
 
 Returning to the original scale (boxcox scale was used for training the ARIMA model) after forecasting to obtain interpretable electricity price predictions.
@@ -636,7 +850,7 @@ forecast_raw_ARIMA2 <- ts(forecast_raw_A, start = c(2018, 1), frequency = 48)
 
 STL-ARIMA 2nd model:
 ```{r}
-forecast12months_S <- forecast(STL_ARIMA_model2, h = 17472)
+forecast12months_S <- forecast(STL_ARIMA_model2, h = 17520)
 ```
 
 Returning to the original scale (boxcox scale was used for training the STL-ARIMA model) after forecasting to obtain interpretable electricity price predictions.
@@ -648,11 +862,9 @@ forecast_raw_S <- InvBoxCox(forecast12months_S$mean, lambda) - 1
 forecast_raw_STL2 <- ts(forecast_raw_S, start = c(2018, 1), frequency = 48)
 ```
 
-
-
 STL-ARIMA 3rd model:
 ```{r}
-forecast12months_S3 <- forecast(STL_ARIMA_model3, h = 17472)
+forecast12months_S3 <- forecast(STL_ARIMA_model3, h = 17520)
 ```
 
 ```{r}
@@ -661,11 +873,26 @@ forecast_raw_STL3 <- ts(forecast12months_S3, start = c(2018, 1), frequency = 48)
 
 ARIMA 3rd model:
 ```{r}
-forecast12months_A3 <- forecast(ARIMA_model3, h = 17472)
+forecast12months_A3 <- forecast(ARIMA_model3, h = 17520)
 ```
 
 ```{r}
 forecast_raw_ARIMA3 <- ts(forecast12months_A3, start = c(2018, 1), frequency = 48)
+```
+
+Forecasting ARIMA-GARCH model:
+```{r}
+forecast_Garch <- ugarchforecast(GARCH_model2, n.ahead = 17520)
+mean_fc_vector <- as.numeric(fitted(forecast_Garch)[ , 1])
+
+# I first order differenced the time series before fitting the model so I'm converting back
+recovered_forecast <- as.numeric(cumsum(mean_fc_vector))
+
+# Adding the Last Observed Value of the original series:
+last_value <- as.numeric(tail(time_series_data, 1))
+final_forecast <- last_value + recovered_forecast
+forecast_Garch2 <- ts(final_forecast, start = c(2018, 1), frequency = 48)
+
 ```
 
 # Overall Model Comparison
@@ -674,32 +901,80 @@ ARIMA_acc2 <- accuracy(forecast_raw_ARIMA2, Test_time_series)
 STL_ARIMA_acc2 <- accuracy(forecast_raw_STL2, Test_time_series)
 ARIMA_acc3 <- accuracy(forecast_raw_ARIMA3, Test_time_series)
 STL_ARIMA_acc3 <- accuracy(forecast_raw_STL3, Test_time_series)
+ARIMA_GARCH_acc <- accuracy(forecast_Garch2, Test_time_series)
 ```
 
 ```{r}
 acc_list2 <- list(ARIMA = ARIMA_acc, ARIMA_2 = ARIMA_acc2, ARIMA_3 = ARIMA_acc3, 
-                  STL_ARIMA = STL_ARIMA_acc, STL_ARIMA_2 = STL_ARIMA_acc2, STL_ARIMA_3 = STL_ARIMA_acc3)
+                  STL_ARIMA = STL_ARIMA_acc, STL_ARIMA_2 = STL_ARIMA_acc2, STL_ARIMA_3 = STL_ARIMA_acc3,
+                  ARIMA_GARCH = ARIMA_GARCH_acc)
 
 acc_df2 <- map_df(acc_list2, ~ as.data.frame(.x)["Test set", ], .id = "Model")
 
+```
+
+Manually calculating the MASE values for box-cox ARIMA and STL-ARIMA models and the ARIMA-GARCH model. Also calculating the ACF1 for the ARIMA-GARCH model.
+```{r}
+# Naive forecast errors from training set
+naive_errors <- diff(time_series_data)  # Assuming naive one-step forecasts
+
+# MAE from naive model
+mae_naive <- mean(abs(naive_errors))
+
+# MAE from the ARIMA-GARCH forecast
+mae_garch <- mean(abs(Test_time_series - as.numeric(forecast_Garch2)))
+
+# MASE for ARIMA GARCH
+mase_garch <- mae_garch / mae_naive
+
+# ARIMA
+naive_errors <- diff(time_series_data)
+mae_naive <- mean(abs(naive_errors))
+mase_ARIMA <- mean(abs(Test_time_series - as.numeric(forecast_raw_ARIMA3$mean)))
+mase_ARIMA <- mase_ARIMA / mae_naive
+
+# STL-ARIMA
+naive_errors <- diff(time_series_data)
+mae_naive <- mean(abs(naive_errors))
+mase_STL <- mean(abs(Test_time_series - as.numeric(forecast_raw_STL3$mean)))
+mase_STL <- mase_STL / mae_naive
+
+# ARIMA-GARCH ACF1
+residuals_garch <- Test_time_series - as.numeric(forecast_Garch2)
+acf_result <- acf(residuals_garch, lag.max = 1, plot = FALSE)
+acf1_value <- acf_result$acf[2]  # Index 2 = lag-1 autocorrelation
+
+```
+
+```{r}
+acc_df2[2, 7] <- mase_ARIMA
+acc_df2[5, 7] <- mase_STL
+acc_df2[7, 7] <- mase_garch
+acc_df2[7, 8] <- acf1_value
+```
+
+```{r}
 acc_df2
 ```
-The MASE could not be calculated for my two of the models (ARIMA 2 and STL-ARIMA 2) presumably due to the box-cox transformation I applied to the time series for those models, so I will be focusing on the other available metrics.
 
-The original ARIMA model and ARIMA model 3 had identical results which means that increasing the AR component from AR(3) to AR(4) did not significantly improve the model. The original ARIMA model and ARIMA model 3 had the best results in regards to their RMSE, MAE, MAPE, MASE and ACF1. Thesse models seem to have strong accuracy and are realiably forecasting final energy prices for 2018.
+The MASE had to be manually calculated for my two of the models (ARIMA 2 and STL-ARIMA 2) presumably due to the box-cox transformation I applied to the time series for those models. I also had to manually calculate the MASE and ACF1 for my ARIMA-GARCH model.
+
+The original ARIMA model and ARIMA model 3 had identical results which means that increasing the AR component from AR(3) to AR(4) did not significantly improve the model. The original ARIMA model and ARIMA model 3 had the best results in regards to their RMSE, MAE, MAPE, MASE and ACF1. These models seem to have strong accuracy and are reliably forecasting final energy prices for 2018.
 
 The 2nd ARIMA model and the second STL-ARIMA model had the worst performance with extremely high RMSE and MAE. The models had the highest ACF1.
 Slightly higher MAE, RMSE, and MASE than ARIMA, but solid MAPE and relatively low ACF1
+
+The ARIMA_GARCH model performed better than the box-cox ARIMA and STL-ARIMA models, but worse than my original ARIMA model in regards to the RMSE, MAE, MPE, MAPE, MASE and ACF1 values. It had a better ME value though.
 
 The model that performed best was my original ARIMA model.
 
 The prior adjustments to the original ARIMA and STL-ARIMA models did not improve the ARIMA model's performance but it did improve the STL-ARIMA model's performance.
 The box-cox transformation of the series made the performance of the models much worse.
-The best model was ARIMA(3,1,1)(0,0,2)[48] and the worst models were STL-ARIMA 2 and ARIMA 2.
+The best model was ARIMA(3,1,1)(0,0,2)[48] and the worst models were the box-cox ARIMA and STL-ARIMA models.
 
 ```{r}
 start_time     <- as.POSIXct("2018-01-01 00:00:00", tz = "UTC")
-times_forecast <- seq(start_time, by = "30 min", length.out = 17472)
+times_forecast <- seq(start_time, by = "30 min", length.out = 17520)
 
 Test_time_series2 <- ts(test_data$DollarsPerMegawattHour, frequency = 48, start = c(2018, 1))
 df_actual <- data.frame(Date = times_forecast, Value = as.numeric(Test_time_series2), Type = "Actual")
