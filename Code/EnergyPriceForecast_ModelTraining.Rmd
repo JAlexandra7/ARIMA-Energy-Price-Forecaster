@@ -9,9 +9,27 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Purpose
+
+Research question: Which time series model most accurately predicts 2019 energy prices, using historical energy price data from 2017 and 2018?
+
+My hypothesis is that an ARIMA model will outperform the more complex models in predicting 2019 energy prices using 2017 and 2018 data.
+
+Model performance is assessed using ME, RMSE, MAE, MPE, MAPE and MASE.
+
+My training set is energy price data from 2017, my validation set is 2018 data and my test set is 2019 data.
+
+After refining the models parameters using the 2018 validation set, the final models will be retrained on the combined the 2017 and 2018 datasets. The final models performance will be evaluated using 2019 data (the unseen test set).
+
+Note that this project is only using one point of connection ABY0111 for simplicity, it was selected because it is the first point of connection alphabetically.
+
 # Libraries
 ```{r, warning=FALSE}
 library(dplyr)
+library(tidyr)
+library(fGarch)
+library(gridExtra)
+library(reshape2)
 library(ggplot2)
 library(ggpmisc)
 library(tseries)
@@ -25,6 +43,11 @@ library(FinTS)
 library(rugarch)
 library(tibble)
 library(forecast)
+```
+
+Ensuring reproducibility of results:
+```{r}
+set.seed(48)
 ```
 
 # Loading Data
@@ -119,7 +142,7 @@ new_rows <- tibble(
   DollarsPerMegawattHour  = interp$y
 )
 
-# bind back and re-sort
+# bind back and resort
 Training_set <- bind_rows(Training_set, new_rows) %>%
   arrange(TradingDate, TradingPeriod)
 
@@ -270,9 +293,9 @@ The p-value is less than the significance level of 0.5, I reject the null hypoth
 
 KPSS test:
 
-Null hypothesis: is trend stationary
+Null hypothesis: the time series is trend stationary
 
-Alternative hypothesis: non-stationary (has a unit root)
+Alternative hypothesis: the time series is not trend stationary (contains a unit root)
 
 ```{r}
 kpss_result <- kpss.test(first_order_diff, null = "Trend")
@@ -296,110 +319,140 @@ The ADF, KPSS and Phillips–Perron tests all concluded that the first order dif
 
 # Fitting models
 ## ARIMA
-I'm using auto.arima with d = 1 (first order differencing) to find a suitable starting ARIMA model that I can manually adjust later based on its residuals.
+I'm using auto.arima with d = 1 (first order differencing) to find a suitable ARIMA model that I can manually adjust later based on its residuals.
 ```{r}
-ARIMA_model1 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2)
+ARIMA_model1 <- auto.arima(time_series_data, stepwise = FALSE, approximation = TRUE, d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = FALSE)
 ```
 
 ```{r}
 summary(ARIMA_model1)
 ```
 
-My current model is ARIMA(3,1,1)(0,0,2)[48]
+My current model is ARIMA(3,1,1)
 
-I have a non seasonal AR(3), first order differencing, MA(1) and no seasonal AR or differencing and seasonal MA, there is a seasonal period of 48
+I have an autoregressive component of order 3, first order differencing applied to the time series, and a moving average component of 1.
+
+## SARIMA
+I'm using auto.arima with d = 1 (first order differencing) to find a suitable SARIMA model that I can manually adjust later based on its residuals.
+```{r}
+SARIMA_model1 <- auto.arima(time_series_data, stepwise = FALSE, approximation = TRUE, d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
+```
+
+```{r}
+summary(SARIMA_model1)
+```
+My current model is ARIMA(3,1,1)(0,0,1)[48]
+
+I have a non seasonal AR(3), first order differencing, MA(1). There is no seasonal AR or differencing. There is a seasonal MA(1) and a seasonal period of 48
 
 ## STL-ARIMA
+I've chosen to fit an STL-ARIMA model because it could potentially handle the seasonality present in the time series better than the ARIMA model.
+
 Decomposing the series and visualizing the decomposition:
 ```{r}
-decomp <- stl(time_series_data, s.window = 48)
+decomp <- stl(time_series_data, s.window = "periodic")
 plot(decomp)
 ```
-The second panel shows a repeating pattern cycling between 40 and -40, meaning there's definitely a seasonal component.
-It consistently oscillates around zero, meaning that the default seasonal detection works well.
+The first panel is a time series plot of the 2017 energy price data.
 
-The third panel shows a smooth and mild upward movement suggests a weak long-term drift. The overall trend shows short-term fluctuations.
+The second panel (seasonal component) shows consistent patterns that repeat over fixed intervals. There is seasonal component to the data.
 
-The fourth panel shows that the remainder is spiky and uneven, it contains outliers and volatility that is not explained by seasonality or trend.
+The third panel (Trend component) shows the overall direction of the data, the middle part of the plot shows a large increase in energy prices, this dips and then rises again at the end of the plot.
+
+The fourth panel (Remainder) shows whats leftover after removing the seasonal and trend effects, it contains outliers and volatility that is not explained by other components.
+
+
+I've enabled robust fitting for the model (robust = TRUE) to make it more resistant to outliers. The weighting function will reduce the influence of outliers, causing most outliers to be captured in the remainder component. As a result, the trend and seasonal patterns will be preserved and will more accurately reflect the underlying structure of the time series.
 
 Fitting an STL-ARIMA to seasonally adjusted series:
 ```{r}
-STL_ARIMA_model1 <- stlm(time_series_data, method = "arima")
+STL_ARIMA_model1 <- stlm(time_series_data, method = "arima", robust = TRUE, s.window = "periodic")
 ```
 
-My current model is STL-ARIMA(5,1,1)
+```{r}
+summary(STL_ARIMA_model1$model)
+```
+
+My STL-ARIMA model is: STL-ARIMA(5,1,1)
+
+I have an autoregressive component of order 5, first order differencing has been applied to the time series and there is a moving average component of order 1.
 
 ## ARIMAX
-Feature engineering:
-```{r}
-# Day of Week
-Day_of_Week <- as.numeric(format(Training_set$TradingDate, "%w"))
-# Weekend / Weekday flag
-Is_Weekend <- as.numeric(format(Training_set$TradingDate, "%w") %in% c("0", "6"))
-# Month
-Month <- as.numeric(format(Training_set$TradingDate, "%m"))
-# Hour of day
-Hour_of_Day <- floor((Training_set$TradingPeriod - 1) / 2)
-# Peak period flag
-Is_peak <- ifelse(Training_set$TradingPeriod %in% c(15:40), 1, 0)
+I've chosen to fit an ARIMAX model to the energy price data because I want to see if incorporating external information will improve the models forecasting accuracy.
 
-xreg <- cbind(Day_of_Week, Is_Weekend, Month, Hour_of_Day, Is_peak)
+### Feature engineering
+On the EMI site, I found energy generation information. My understanding is that if the supply of energy (energy generation output) decreases, then the price of energy will increase, so energy generation information could be useful for predicting energy prices.
+
+This generation output information is from the EMI website:
+```{r}
+csv_files <- list.files(path = "Energy Generation", pattern = "*.csv", full.names = TRUE)
+
+Generation <- csv_files %>% lapply(read.csv) %>% bind_rows()
+head(Generation)
 ```
 
-These engineered variables are my xreg matrix for ARIMAX
+I am going to use the total energy output for each date and trading period as an exogenous variable.
 
-fitting model:
 ```{r}
-ARIMAX_model1 <- auto.arima(time_series_data, xreg = xreg, stepwise = TRUE, approximation = TRUE, d = 1, max.p = 2, max.q = 2, max.P = 1, max.Q = 1, allowdrift = FALSE)
+any(Generation[8:57] == 0)
+```
+There are some trading periods for each date and plant where the energy output is 0, this could be due to maintenance being performed on the plant at those specific times, or due to daylight savings.
+
+```{r}
+which(sapply(Generation, anyNA), TRUE)[]
+```
+There are some NA values for the 47th, 48th, 49th and 50th Trading periods.
+
+These NA values will be due to daylight savings.
+
+There are 48 trading periods in New Zealand's electricity market, but 49th and 50th trading periods have been recorded in this dataset because of daylight savings. Since not every day is affected by daylight savings (resulting in there being 1 hour more or less in the day) then not every day has values for the 49th and 50th trading periods.
+
+I'm going to drop the 49th and 50th trading periods from the data.
+
+```{r}
+Generation_Overall_Output <- Generation[, -c(56, 57)] %>%
+  pivot_longer(
+    cols = matches("^TP\\d+$"), # gets all the trading period columns (TP1 to TP50)
+    names_to = "TradingPeriod", # makes a new column containing the old period column names
+    names_prefix = "TP", # removes the "TP" prefix from all rows in the TradingPeriod column
+    values_to = "Energy_output" # makes a new column for site energy output
+  ) %>%
+  mutate(
+    TradingPeriod = as.integer(TradingPeriod),  # converting the TradingPeriod values to integers
+    Trading_date = as.Date(Trading_date)  # converting Trading_date into a date object
+  ) %>%
+  group_by(Trading_date, TradingPeriod) %>%
+  # Treats each unique combination of trading date and period as its own group
+  summarise(
+    Energy_output = sum(Energy_output, na.rm = TRUE),
+  # calculates the total energy output for (that trading date and period) each group by summing the energy output values across all sites
+    .groups = "drop"
+  )
+
+head(Generation_Overall_Output)
 ```
 
-Since the series is being differenced (d = 1) I've decided that drift is not necessary.
-
-## TBATS
-There is some residual autocorrelation in the series as seen from the acf and pacf plots. So I have set use.arma.errors = TRUE to include ARMA errors to model this residual autocorrelation.
-
-Fitting model:
 ```{r}
-TBATS_model1 <- tbats(time_series_data, use.arma.errors = TRUE, seasonal.periods = c(48, 336)) # daily and weekly cycles)
-```
-
-# Forecasting
-## Loading Test Data
-Loading test data:
-```{r}
-csv_folder <- "2018"
-csv_files <- list.files(path = csv_folder, pattern = "*.csv", full.names = TRUE)
-
-test_data <- csv_files %>% lapply(read.csv) %>% bind_rows()
-test_data <- test_data[test_data$PointOfConnection == "ABY0111", ]
-test_data <- test_data[order(test_data$TradingDate, test_data$TradingPeriod), ]
-test_data$TradingDate <- as.Date(test_data$TradingDate)
+any(Generation_Overall_Output$Energy_output == 0)
+which(Generation_Overall_Output$Energy_output == 0)
 
 ```
-
-Because I removed daylight savings effected days from my training set then I am also going to remove these days from my test set. Daylight savings for 2018 starts on 2018-09-30
+There are two rows where there is no energy output.
 
 ```{r}
-ErrorIndices2 <- which(test_data$TradingPeriod > 48)
-test_data <- test_data[-ErrorIndices2, ]
+Generation_Overall_Output[c(12815, 12816), ]
 ```
 
+This lack of energy output is due to daylight savings. There is one less hour in the day on 2017-09-24 and as a result no energy output is recorded for the lost hour.
+
+I'm going to use linear interpolation to fill the gap of energy output for these trading periods
 ```{r}
-test_data %>% mutate(test_data = as.Date(TradingDate)) %>% count(TradingDate) %>% filter(n < 48)
-```
+i_prev <- which(Generation_Overall_Output$Trading_date == as.Date("2017-09-24") &
+                Generation_Overall_Output$TradingPeriod == 46)
 
-I'm going to use linear interpolation to fill in the 2 trading period gap for 2018-09-30
-```{r}
-# finding the row just before period 47 on 2017-09-24
-i_prev <- which(test_data$TradingDate == as.Date("2018-09-30") &
-                test_data$TradingPeriod == 46)
+price_prev <- Generation_Overall_Output$Energy_output[i_prev]
+price_next <- Generation_Overall_Output$Energy_output[i_prev + 1]
 
-# Computing the two interpolated values: 
-# Extracting the two known prices
-price_prev <- test_data$DollarsPerMegawattHour[i_prev]
-price_next <- test_data$DollarsPerMegawattHour[i_prev + 1]
-
-# runing approx() over the X = {46,49} → Y = {prev,next}, get Y at Xout = {47,48}
 interp <- approx(
   x    = c(46, 49),
   y    = c(price_prev, price_next),
@@ -407,8 +460,379 @@ interp <- approx(
   method = "linear"
 )
 
-# interp$x == c(47,48); interp$y == interpolated prices
-interp
+Generation_Overall_Output$Energy_output[12815] <- interp$y[1]
+Generation_Overall_Output$Energy_output[12816] <- interp$y[2]
+
+Generation_Overall_Output[c(12815, 12816), ]
+```
+
+Feature engineering:
+```{r}
+# Energy generation output
+Energy_generation <- Generation_Overall_Output$Energy_output / 1e6
+
+# Season:
+# I'm using meteorological season start dates (which are the same every year) for simplicity and consistency
+Season <- data.frame(Date = Training_set$TradingDate)
+Season$Season <- rep("", nrow(Training_set))
+Season$Season[
+  which(Season$Date >= as.Date("2017-03-01") & Season$Date <= as.Date("2017-05-31"))
+] <- "Autumn"
+
+Season$Season[
+  which(Season$Date >= as.Date("2017-06-01") & Season$Date <= as.Date("2017-08-31"))
+] <- "Winter"
+
+Season$Season[
+  which(Season$Date >= as.Date("2017-09-01") & Season$Date <= as.Date("2017-11-30"))
+] <- "Spring"
+
+Season$Season[
+  which(Season$Date >= as.Date("2017-12-01") & Season$Date <= as.Date("2017-12-31"))
+] <- "Summer"
+Season$Season[
+  which(Season$Date >= as.Date("2017-01-01") & Season$Date <= as.Date("2017-02-28"))
+] <- "Summer"
+
+# Converting seasons to dummy variables (with one-hot encoding)
+Season_dummies <- model.matrix(~ Season, data = Season)[, -1]
+# dropped 1 season (autumn) to avoid the dummy variable trap
+
+# Weekend / Weekday variable: (1 is a weekend, 0 is a weekday)
+Is_Weekend <- ifelse(weekdays(Training_set$TradingDate) %in% c("Saturday", "Sunday"), 1, 0)
+
+xreg <- cbind(Energy_generation, Season_dummies, Is_Weekend)
+```
+
+Note that energy generation was scaled down because if the regressors in xreg have very large values, it can cause numerical instability.
+
+These engineered variables make up my xreg matrix for ARIMAX. I'm going to see if including these eXogenous variables in the model results in better forecasting accuracy.
+
+### Feature correlation with response
+Checking correlation with response:
+```{r}
+numeric_vars <- data.frame(Energy_generation, Is_Weekend)
+numeric_vars["Energy_Price"] <- Training_set$DollarsPerMegawattHour
+cor_matrix1 <- cor(numeric_vars, use = "complete.obs")
+cor_matrix <- melt(cor_matrix1)
+
+ggplot(data = cor_matrix, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  geom_text(aes(label = round(value, 2)), color = "black", size = 5) +
+  scale_fill_distiller(palette = "Spectral") +
+  labs(title = "Correlation Heatmap of Numerical xreg variables", x = NULL, y = NULL) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+None of the regressor variables are strongly correlated with each other. The response has almost no correlation (-0.07) with the variable Is_Weekend and has a weak correlation (0.38) with Energy_generation.
+
+Because Season is categorical I'm checking this variable's correlation with the response separately:
+```{r}
+categorical_vars <- data.frame(Season_dummies)
+categorical_vars["Energy_Price"] <- Training_set$DollarsPerMegawattHour
+cor_matrix2 <- cor(categorical_vars, use = "complete.obs")
+cor_matrix_categorical <- melt(cor_matrix2)
+
+ggplot(data = cor_matrix_categorical, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  geom_text(aes(label = round(value, 2)), color = "black", size = 5) +
+  scale_fill_distiller(palette = "Spectral") +
+  labs(title = "Correlation Heatmap of Categorical xreg variables", x = NULL, y = NULL) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+The response variable has a weak negative correlation of -0.05 with Season Summer and a weak negative correlation of -0.1 with Season Spring. The response variable has a moderate positive correlation of 0.44 with Season Winter.
+
+### Fitting model
+
+Fitting model:
+```{r}
+ARIMAX_model1 <- auto.arima(time_series_data, xreg = xreg, stepwise = TRUE, approximation = TRUE, d = 1, max.p = 2, max.q = 2, max.P = 1, max.Q = 1, allowdrift = TRUE)
+```
+
+```{r}
+summary(ARIMAX_model1)
+```
+My ARIMAX model is: ARIMA(2,1,2)(0,0,1)[48] errors
+
+The time series is being modeled using the external predictors (xreg) but the errors are following an ARIMA process.
+
+The ARIMA structure of the errors is: non seasonal AR(2), first order differencing, non seasonal MA(2). There is no seasonal AR or differencing. There is a seasonal MA(1) and a seasonal period of 48
+
+## ARIMA-GARCH models
+I've decided to fit an ARIMA-GARCH model because it can handle seasonality, volatility clustering, conditional heteroskedasticity and capture tail behavior. This combination could make it better at capturing long term patterns and dealing with sudden market shocks than an ARIMA model.
+
+Fitting an ARIMA-GARCH model: 
+
+Since GARCH models don't handle differencing internally I'm applied a first order differencing to my time series prior to fitting the model.
+
+I'm starting with a simple ARIMA-GARCH model with 1 GARCH term (lagged conditional variances) and 1 ARCH term (lagged squared residuals). Each model has an autocorrelation component of order 1, and a moving average component of order 1.
+
+I'm starting by testing different distributions with the same model to see which distribution is best for modelling the differenced time series. The distributions I'm checking are the normal distribution, the standard normal distribution, the generalized error distribution, the skew normal distribution, and the standardized skew Students t distribution.
+
+Testing different distributions:
+```{r}
+fit_ARIMA_GARCH <- function(distribution, garchorder_1, garchorder_2, armaOrder1, armaOrder2){
+spec <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(garchorder_1, garchorder_2)),
+  mean.model     = list(armaOrder = c(armaOrder1, armaOrder2), include.mean = TRUE),
+  distribution.model = distribution
+)
+ugarchfit(spec = spec, data = first_order_diff, solver = "hybrid")
+}
+
+```
+
+```{r}
+fit_norm <- fit_ARIMA_GARCH("norm", 1, 1, 1, 1)
+fit_std  <- fit_ARIMA_GARCH("std", 1, 1, 1, 1)
+fit_ged <- fit_ARIMA_GARCH("ged", 1, 1, 1, 1)
+fit_snorm <- fit_ARIMA_GARCH("snorm", 1, 1, 1, 1)
+fit_sstd  <- fit_ARIMA_GARCH("sstd", 1, 1, 1, 1)
+```
+
+```{r}
+models <- list(norm = fit_norm, std = fit_std, ged = fit_ged, snorm = fit_snorm, sstd = fit_sstd
+)
+
+info_table <- sapply(models, infocriteria)
+
+info_df <- as.data.frame(t(info_table))
+colnames(info_df) <- c("AIC", "BIC", "Shibata", "Hannan-Quinn")
+
+print(info_df)
+```
+
+The generalized error distribution distribution (GED) has the best model fit according to AIC, BIC, Shibata, and Hannan-Quinn. I'm going to double check that its the best distribution for the data by looking at the residuals.
+
+### kernel density plots
+To visually check which distribution best fits the model, I am going to plot the theoretical distribution of each model over the actual distribution of its residuals (errors). This will allow me to see how closely each models theoretical distribution aligns with its observed residuals.
+
+I will be using kernel density plots of residuals for this comparison, where the red line represents the theoretical distribution and the black line represents the actual distribution of the model's residuals.
+
+```{r}
+par(mfrow = c(1, 2))
+
+x <- residuals(fit_norm)
+plot(density(residuals(fit_norm)), main = "Residuals vs NORM")
+curve(dnorm(x, mean = 0, sd = sd(residuals(fit_norm))), add = TRUE, col = "red")
+
+x <- residuals(fit_snorm)
+plot(density(residuals(fit_snorm)), main = "Residuals vs SNORM")
+curve(dsnorm(x, mean = 0, sd = sd(residuals(fit_snorm)), xi = coef(fit_snorm)["skew"]), add = TRUE, col = "red")
+
+```
+For both plots, the red line (representing the theoretical distribution) doesn't closely follow the black line (representing the actual distribution of the model's residuals).
+
+The red curve is wider than the black curve meaning that the theoretical distribution has more variability (spread) than the actual distribution of the residuals. The actual distribution of the residuals shown by the black line has a narrower curve indicating tighter clustering. I can see that this clustering is centered around 0 and that the distribution is symmetric. For both plots, the gap between the curves suggests that the model is not capturing the error structure accurately.
+
+For both plots, the peak of the actual residuals (shown by black line) is much higher than the theoretical distribution's peak (shown by red line).
+
+This suggests that the normal distribution and skewed normal distribution are poor fits for the ARIMA-GARCH models.
+
+```{r}
+par(mfrow = c(1, 2))
+
+x <- residuals(fit_ged)
+plot(density(residuals(fit_ged)), main = "Residuals vs GED")
+curve(dged(x, mean = 0, sd = sd(residuals(fit_ged)), nu = coef(fit_ged)["shape"]), add = TRUE, col = "red")
+
+x <- residuals(fit_std)
+plot(density(residuals(fit_std)), main = "Residuals vs STD")
+curve(dstd(x, mean = 0, sd = sd(residuals(fit_std)), nu = coef(fit_std)["shape"]), add = TRUE, col = "red")
+
+```
+For both plots, the theoretical distribution overlaps the actual distribution of the residuals almost perfectly, expect for the peak.
+
+This means that the spread (variability) of the distributions, theoretical and actual, is around the same.
+
+I can see that the distributions are symmetric and centered around 0.
+
+For both plots, the peak of the actual residuals (shown by black line) is much higher than the theoretical distribution's peak (shown by red line). The GED theoretical distribution appears to more accurately capture the structure of the errors than the std distribution.
+
+```{r}
+x <- residuals(fit_sstd)
+plot(density(residuals(fit_sstd)), main = "Residuals vs SSTD")
+curve(dsstd(x, mean = 0, sd = sd(residuals(fit_sstd)), nu = coef(fit_sstd)["shape"]), add = TRUE, col = "red")
+
+```
+The red line (representing the theoretical distribution) doesn't closely follow the black line (representing the actual distribution of the model's residuals). The peak of the actual residuals (shown by black line) is much higher than the theoretical distribution's peak (shown by red line).
+
+This shows that the theoretical distribution has much more variability (spread) than the actual distribution of the residuals. The gap between the curves suggests that the model with the sstd distribution does not accurately capture the error structure.
+
+
+For every single model the peak of the observed residuals, shown by the black line, is much higher than the theoretical distribution curve, which is shown by the red line.
+
+The model with the GED distribution most accurately captures the structure of the errors, but it can't capture the peak (mode of the data) where majority of the data is concentrated.
+
+```{r}
+library(moments)
+skewness(residuals(fit_ged))
+kurtosis(residuals(fit_ged))
+```
+The skew is quite close to 0, meaning the residuals are symmetric, so skewed distributions like snorm and sstd are not necessary.
+
+The kurtosis is much larger than 10, which mean that the residuals are extremely leptokurtic.
+
+```{r}
+# log-transformed GED density
+dged_log <- function(x, mean, sd, nu) {
+  y <- exp(x) # inverse of log
+  dged(y, mean = mean, sd = sd, nu = nu) * y # multiplying by the derivative of inverse (Jacobian)
+}
+
+plot(density(log(abs(residuals(fit_ged)))), main = "Log Density of Residuals vs Theoretical GED")
+curve(dged_log(x, mean = 0, sd = sd(residuals(fit_ged)), nu = coef(fit_ged)["shape"]), add = TRUE, col = "red")
+```
+
+This plot compares the log density of residuals (black curve) against the log of the theoretical GED distribution (red curve).
+
+Although both curves peak around 2, the black curve has a sharper and higher peak than the red, this suggests that the observed residuals are more concentrated (have less spread) near their mode than the theoretical GED distribution predicts.
+
+The log residual distribution shows multiple peaks, the highest peak is at around 2, and the two smaller peaks are at around -5 and -7. This shows multi-modal behavior and indicates latent structure. 
+
+The black curve extends further into the left tail and with higher density than the theoretical GED would predict. This indicates tail risk, which is the increased likelihood of extreme negative errors that could lead to substantial model errors.
+
+The heavy left tail of the actual residuals indicate that the model underestimates the probability of large negative errors. When forecasting energy prices, this issue could result in poor estimates during unexpected price shocks, particularly sudden drops.
+
+The extreme kurtosis in the residuals suggests that parameter tuning is necessary to better capture tail behavior and improve model fit.
+
+### ARIMA-Garch grid search
+#### ARIMA-GARCH
+
+Defining parameter grid for ARIMA-GARCH:
+```{r}
+grid <- expand.grid(
+  garchorder_1 = 1:2,
+  garchorder_2 = 1:2,
+  armaOrder1   = 0:2,
+  armaOrder2   = 0:2
+)
+```
+
+Grid search for best model:
+```{r}
+results <- list()
+
+# Looping through grid of parameters
+# Note that the final parameter set (g1 = 2, g2 = 2, p = 2, q = 2) was excluded from the grid search due to the model's excessive complexity, which prevented the optimizer from inverting its Hessian matrix
+for (i in 1:( nrow(grid) - 1 ) ) {
+  g1 <- grid$garchorder_1[i]
+  g2 <- grid$garchorder_2[i]
+  p  <- grid$armaOrder1[i]
+  q  <- grid$armaOrder2[i]
+
+# Labeling each model tested and printing the label to keep track
+  model_name <- paste0("ARMA(", p, ",", q, ") GARCH(", g1, ",", g2, ")")
+  cat("Fitting:", model_name, "\n")
+  
+# Fits the model using custom function fit_ARIMA_GARCH
+# Captures errors and warnings to avoid crashing the loop
+# Returns NULL if fitting the model fails
+  fit <- tryCatch(
+    fit_ARIMA_GARCH("ged", g1, g2, p, q),
+    error = function(e) {
+      cat("Error:", e$message, "\n")
+      return(paste("Error: ", model_name))
+    },
+    warning = function(w) {
+      cat("Warning:", w$message, "\n")
+      return(paste("Warning: ", model_name))
+    }
+  )
+  
+# If the model isn't NULL then stores info criteria in a list
+# Otherwise stores NA's for that model
+  if (!is.null(fit)) {
+    ic <- infocriteria(fit)
+    results[[model_name]] <- ic
+  } else {
+    results[[model_name]] <- rep(NA, 4)
+  }
+}
+```
+Note that the final parameter set (g1 = 2, g2 = 2, p = 2, q = 2) was excluded from the grid search due to the model's excessive complexity, which prevented the optimizer from inverting its Hessian matrix.
+
+```{r}
+tbl <- imap_dfr(results, function(ic, model_name) {
+  tibble(
+    Model = model_name,
+    Akaike = ic["Akaike", ],
+    Bayes = ic["Bayes", ],
+    Shibata = ic["Shibata", ],
+    Hannan_Quinn = ic["Hannan-Quinn", ]
+  )
+})
+sorted_tbl <- tbl %>% arrange(Akaike)
+print(sorted_tbl)
+```
+
+The best ARIMA-GARCH model is ARMA(1,0) GARCH(1,2). It has the lowest AIC and the lowest Shibata. It has the second lowest Hannan-Quinn. It also has the fourth lowest BIC.
+
+I will be moving forward with the ARMA(1,0) GARCH(1,2) model for forecasting.
+
+```{r}
+spec <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 2)),
+  mean.model = list(armaOrder = c(1, 0), include.mean = TRUE),
+  distribution.model = "ged"
+)
+GARCH_model <- ugarchfit(spec = spec, data = first_order_diff, solver = "hybrid")
+
+```
+
+```{r}
+show(GARCH_model)
+```
+
+Since I applied first order differencing to the time series prior to fitting the model, then the model is:
+
+ARIMA(1, 1, 0) - GARCH(1, 2).
+
+Where the time series has been differenced one (d = 1) and includes an autoregressive component of order 1 in the mean.
+
+The models variance dynamics include 1 ARCH term and 2 GARCH terms.
+
+# Forecasting
+## Loading Validation set:
+Loading validation data:
+```{r}
+csv_folder <- "2018"
+csv_files <- list.files(path = csv_folder, pattern = "*.csv", full.names = TRUE)
+
+val_set <- csv_files %>% lapply(read.csv) %>% bind_rows()
+val_set <- val_set[val_set$PointOfConnection == "ABY0111", ]
+val_set <- val_set[order(val_set$TradingDate, val_set$TradingPeriod), ]
+val_set$TradingDate <- as.Date(val_set$TradingDate)
+
+```
+
+Because I removed daylight savings effected days from my training set then I am also going to remove these days from my validation set. Daylight savings for 2018 starts on 2018-09-30
+
+```{r}
+ErrorIndices2 <- which(val_set$TradingPeriod > 48)
+val_set <- val_set[-ErrorIndices2, ]
+```
+
+```{r}
+val_set %>% mutate(val_set = as.Date(TradingDate)) %>% count(TradingDate) %>% filter(n < 48)
+```
+
+I'm going to use linear interpolation to fill in the 2 trading period gap for 2018-09-30
+```{r}
+# finding the row just before period 47 on 2018-09-30
+i_prev <- which(val_set$TradingDate == as.Date("2018-09-30") &
+                val_set$TradingPeriod == 46)
+
+# Extracting the two known prices
+price_prev <- val_set$DollarsPerMegawattHour[i_prev]
+price_next <- val_set$DollarsPerMegawattHour[i_prev + 1]
+
+interp <- approx(
+  x    = c(46, 49),
+  y    = c(price_prev, price_next),
+  xout = c(47, 48),
+  method = "linear"
+)
+
 ```
 
 ```{r}
@@ -419,20 +843,20 @@ new_rows <- tibble(
   DollarsPerMegawattHour  = interp$y
 )
 
-# bind back and re-sort
-test_data <- bind_rows(test_data, new_rows) %>%
+# bind back and resort
+val_set <- bind_rows(val_set, new_rows) %>%
   arrange(TradingDate, TradingPeriod)
 
-# view the gap now filled
-filter(test_data,
+# viewing the gap now filled
+filter(val_set,
        TradingDate == as.Date("2018-09-30"),
        TradingPeriod %in% 46:49)
 ```
 
 Making it a time series object:
 ```{r}
-price_vector2 <- as.numeric(test_data$DollarsPerMegawattHour)
-Test_time_series <- ts(price_vector2, start = c(2018, 1), frequency = 48)
+price_vector2 <- as.numeric(val_set$DollarsPerMegawattHour)
+Val_time_series <- ts(price_vector2, start = c(2018, 1), frequency = 48)
 ```
 
 ## ARIMA
@@ -441,479 +865,249 @@ forecast_raw_ARIMA_1 <- forecast(ARIMA_model1, h = 17520)
 ```
 
 ```{r}
-forecast_raw_ARIMA <- ts(forecast_raw_ARIMA_1, start = c(2018, 1), frequency = 48)
+forecast_ARIMA <- ts(forecast_raw_ARIMA_1, start = c(2018, 1), frequency = 48)
+```
+
+## SARIMA
+```{r}
+forecast_raw_SARIMA_1 <- forecast(SARIMA_model1, h = 17520)
+```
+
+```{r}
+forecast_SARIMA <- ts(forecast_raw_SARIMA_1, start = c(2018, 1), frequency = 48)
 ```
 
 ## STL-ARIMA
 I'm going to forecast 48 trading periods for 12 months
 ```{r}
-forecast12months <- forecast(STL_ARIMA_model1, h = 17520)
+forecast_raw_STL_1 <- forecast(STL_ARIMA_model1, h = 17520)
 ```
 
 ```{r}
-forecast_raw_STL <- ts(forecast12months, start = c(2018, 1), frequency = 48)
+forecast_STL <- ts(forecast_raw_STL_1, start = c(2018, 1), frequency = 48)
 ```
 
-## ARIMAX forecasting
-```{r}
-# Day of Week
-Day_of_Week <- as.numeric(format(test_data$TradingDate, "%w"))
-# Weekend / Weekday flag
-Is_Weekend <- as.numeric(format(test_data$TradingDate, "%w") %in% c("0", "6"))
-# Month
-Month <- as.numeric(format(test_data$TradingDate, "%m"))
-# Hour of day
-Hour_of_Day <- floor((test_data$TradingPeriod - 1) / 2)
-# Peak period flag
-Is_peak <- ifelse(test_data$TradingPeriod %in% c(15:40), 1, 0)
+## ARIMAX
+Of my three ARIMAX variables, only two are known in advance every year (Is_Weekend and Season), and one isn't known in advance every year (Energy_generation). Because I want to simulate real world conditions during validation I am going to compare the results of two ARIMAX models, one with the actual Energy_generation values and one with forecasted Energy_generation values. This is to understand how sensitive the model is to uncertainty in external inputs.
 
-xreg_future <- cbind(Day_of_Week, Is_Weekend, Month, Hour_of_Day, Is_peak)
-```
-
-forecasting:
+### ARIMAX; actual Energy_generation
+Forecasting with actual Energy_generation values:
 ```{r}
-forecast12months2 <- forecast(ARIMAX_model1, h = 17520, xreg = xreg_future)
+csv_files2 <- list.files(path = "Energy Generation - 2018", pattern = "*.csv", full.names = TRUE)
+
+Generation2 <- csv_files2 %>% lapply(read.csv) %>% bind_rows()
 ```
 
 ```{r}
-forecast_raw_ARIMAX <- ts(forecast12months2, start = c(2018, 1), frequency = 48)
+Generation_Overall_Output2 <- Generation2[, -c(56, 57)] %>%
+  pivot_longer(
+    cols = matches("^TP\\d+$"), # gets all the trading period columns (TP1 to TP50)
+    names_to = "TradingPeriod", # makes a new column containing the old period column names
+    names_prefix = "TP", # removes the "TP" prefix from all rows in the TradingPeriod column
+    values_to = "Energy_output" # makes a new column for site energy output
+  ) %>%
+  mutate(
+    TradingPeriod = as.integer(TradingPeriod),  # converting the TradingPeriod values to integers
+    Trading_date = as.Date(Trading_date)  # converting Trading_date into a date object
+  ) %>%
+  group_by(Trading_date, TradingPeriod) %>%
+  # Treats each unique combination of trading date and period as its own group
+  summarise(
+    Energy_output = sum(Energy_output, na.rm = TRUE),
+  # calculates the total energy output for (that trading date and period) each group by summing the energy output values across all sites
+    .groups = "drop"
+  )
+
 ```
 
-## TBATS
+```{r}
+Generation_Overall_Output2[which(Generation_Overall_Output2$Energy_output == 0), ]
+```
+
+```{r}
+which(Generation_Overall_Output2$Energy_output == 0)
+```
+
+```{r}
+i_prev <- which(Generation_Overall_Output2$Trading_date == as.Date("2018-09-30") &
+                Generation_Overall_Output2$TradingPeriod == 46)
+
+price_prev <- Generation_Overall_Output2$Energy_output[i_prev]
+price_next <- Generation_Overall_Output2$Energy_output[i_prev + 1]
+
+interp <- approx(
+  x    = c(46, 49),
+  y    = c(price_prev, price_next),
+  xout = c(47, 48),
+  method = "linear"
+)
+
+Generation_Overall_Output2$Energy_output[13103] <- interp$y[1]
+Generation_Overall_Output2$Energy_output[13104] <- interp$y[2]
+
+Generation_Overall_Output2[c(13103, 13104), ]
+```
+
+```{r}
+# Energy generation output
+Energy_generation <- Generation_Overall_Output2$Energy_output / 1e6
+
+# Season:
+# I'm using meteorological season start dates (which are the same every year) for simplicity and consistency
+Season2 <- data.frame(Date = val_set$TradingDate)
+Season2$Season <- rep("", nrow(val_set))
+Season2$Season[
+  which(Season2$Date >= as.Date("2018-03-01") & Season2$Date <= as.Date("2018-05-31"))
+] <- "Autumn"
+
+Season2$Season[
+  which(Season2$Date >= as.Date("2018-06-01") & Season2$Date <= as.Date("2018-08-31"))
+] <- "Winter"
+
+Season2$Season[
+  which(Season2$Date >= as.Date("2018-09-01") & Season2$Date <= as.Date("2018-11-30"))
+] <- "Spring"
+
+Season2$Season[
+  which(Season2$Date >= as.Date("2018-12-01") & Season2$Date <= as.Date("2018-12-31"))
+] <- "Summer"
+Season2$Season[
+  which(Season2$Date >= as.Date("2018-01-01") & Season2$Date <= as.Date("2018-02-28"))
+] <- "Summer"
+
+# Converting seasons to dummy variables (with one-hot encoding)
+Season_dummies <- model.matrix(~ Season, data = Season2)[, -1]
+# dropped 1 season (autumn) to avoid the dummy variable trap
+
+# Weekend / Weekday variable: (1 is a weekend, 0 is a weekday)
+Is_Weekend <- ifelse(weekdays(val_set$TradingDate) %in% c("Saturday", "Sunday"), 1, 0)
+
+xreg_future <- cbind(Energy_generation, Season_dummies, Is_Weekend)
+```
 
 Forecasting:
 ```{r}
-forecast_tbats <- forecast(TBATS_model1, h = 17520)
-forecast_raw_TBATS <- ts(forecast_tbats, start = c(2018, 1), frequency = 48)
+forecast_raw_ARIMAX_1 <- forecast(ARIMAX_model1, h = 17520, xreg = xreg_future)
 ```
 
-# Accuracy metrics
+```{r}
+forecast_ARIMAX <- ts(forecast_raw_ARIMAX_1, start = c(2018, 1), frequency = 48)
+```
+
+### ARIMAX; forecasted Energy_generation
+Forecasting with estimated (forecasted) Energy_generation values:
+
+Model for forecasting Energy_generation values:
+```{r}
+Energy_generation_2017 <- Generation_Overall_Output$Energy_output / 1e6
+ts_Energy <- ts(Energy_generation_2017, start = c(2017, 1), frequency = 48)
+
+ARIMA_model_generation <- auto.arima(ts_Energy, stepwise = FALSE, approximation = TRUE, d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
+```
+
+```{r}
+summary(ARIMA_model_generation)
+```
+Model for forecasting energy generation is ARIMA(2,1,1)(2,1,0)[48].
+
+```{r}
+# Energy generation output
+Energy_generation <- forecast(ARIMA_model_generation, h = 17520)$mean
+
+typeof(Energy_generation)
+```
+
+```{r}
+# Season:
+# I'm using meteorological season start dates (which are the same every year) for simplicity and consistency
+Season2 <- data.frame(Date = val_set$TradingDate)
+Season2$Season <- rep("", nrow(val_set))
+Season2$Season[
+  which(Season2$Date >= as.Date("2018-03-01") & Season2$Date <= as.Date("2018-05-31"))
+] <- "Autumn"
+
+Season2$Season[
+  which(Season2$Date >= as.Date("2018-06-01") & Season2$Date <= as.Date("2018-08-31"))
+] <- "Winter"
+
+Season2$Season[
+  which(Season2$Date >= as.Date("2018-09-01") & Season2$Date <= as.Date("2018-11-30"))
+] <- "Spring"
+
+Season2$Season[
+  which(Season2$Date >= as.Date("2018-12-01") & Season2$Date <= as.Date("2018-12-31"))
+] <- "Summer"
+Season2$Season[
+  which(Season2$Date >= as.Date("2018-01-01") & Season2$Date <= as.Date("2018-02-28"))
+] <- "Summer"
+
+# Converting seasons to dummy variables (with one-hot encoding)
+Season_dummies <- model.matrix(~ Season, data = Season2)[, -1]
+# dropped 1 season (autumn) to avoid the dummy variable trap
+
+# Weekend / Weekday variable: (1 is a weekend, 0 is a weekday)
+Is_Weekend <- ifelse(weekdays(val_set$TradingDate) %in% c("Saturday", "Sunday"), 1, 0)
+
+xreg_future2 <- cbind(Energy_generation, Season_dummies, Is_Weekend)
+
+# Correcting issue with colnames:
+colnames(xreg_future2)[2] <- "SeasonSpring"
+colnames(xreg_future2)[3] <- "SeasonSummer"
+colnames(xreg_future2)[4] <- "SeasonWinter"
+
+```
+
+Forecasting:
+```{r}
+forecast_raw_ARIMAX_2 <- forecast(ARIMAX_model1, h = 17520, xreg = xreg_future2)
+```
+
+```{r}
+forecast_ARIMAX2 <- ts(forecast_raw_ARIMAX_2, start = c(2018, 1), frequency = 48)
+```
+
+## ARIMA-GARCH model
+Forecasting ARIMA-GARCH model:
+```{r}
+forecast_raw_Garch <- ugarchforecast(GARCH_model, n.ahead = 17520)
+mean_fc_vector <- as.numeric(fitted(forecast_raw_Garch)[ , 1])
+```
+
+I first order differenced the time series before fitting the model so I'm converting back:
+```{r}
+recovered_forecast <- as.numeric(cumsum(mean_fc_vector))
+```
+
+Adding the Last Observed Value of the original series:
+```{r}
+last_value <- as.numeric(tail(time_series_data, 1))
+final_forecast <- last_value + recovered_forecast
+forecast_GARCH <- ts(final_forecast, start = c(2019, 1), frequency = 48)
+```
+
+# Accuracy metrics for forecasting 2018 energy prices
 
 Model accuracy:
 ```{r}
-ARIMA_acc <- accuracy(forecast_raw_ARIMA, Test_time_series)
-STL_ARIMA_acc <- accuracy(forecast_raw_STL, Test_time_series)
-ARIMAX_acc <- accuracy(forecast_raw_ARIMAX, Test_time_series)
-TBATS_acc <- accuracy(forecast_raw_TBATS, Test_time_series)
+ARIMA_acc <- accuracy(forecast_ARIMA, Val_time_series)
+SARIMA_acc <- accuracy(forecast_SARIMA, Val_time_series)
+STL_ARIMA_acc <- accuracy(forecast_STL, Val_time_series)
+ARIMAX_acc <- accuracy(forecast_ARIMAX, Val_time_series)
+ARIMAX2_acc <- accuracy(forecast_ARIMAX2, Val_time_series)
+GARCH_acc <- accuracy(forecast_GARCH, Val_time_series)
 ```
 
 ```{r}
 acc_list <- list(
   ARIMA     = ARIMA_acc,
+  SARIMA    = SARIMA_acc,
   STL_ARIMA = STL_ARIMA_acc,
   ARIMAX    = ARIMAX_acc,
-  TBATS     = TBATS_acc)
-
-acc_df <- map_df(acc_list, ~ as.data.frame(.x)["Test set", ], .id = "Model")
-
-acc_df
+  ARIMAX2   = ARIMAX2_acc,
+  ARIMA_GARCH = GARCH_acc)
 ```
 
-The ARIMA model has the best RMSE, MAE, MPE, MAPE and MASE. ARIMA was the most accurate forecasting model.
-
-The worst model was ARIMAX with the worst ME, RMSE, MAE, MPE, MAPE and MASE.
-
-TBATS had the best ME but had higher MAE, MAPE, and MASE than STL-ARIMA
-
-All models have similar ACF1 values which suggests that the residuals for all models still have short range correlation.
-
-The MASE for ARIMA, STL-ARIMA and TBATS iss less than 1 which means they beat a naive "yesterday's price" benchmark on average absolute error.
-
-I'm going to check the residuals of the ARIMA and STL-ARIMA models and do some model refinement. I will not be continuing with the worst performing models ARIMAX and TBATS.
-
-# Structural checks and Statistical diagnostics
-## ARIMA
-
-Autocorrelation check with Ljung Box test, acf and pacf plots:
-```{r}
-checkresiduals(ARIMA_model1)
-```
-The p-value is extremely small I reject the null hypothesis that there is no autocorrelation in the residuals and conclude that there is autocorrelation in the residuals. This means that the TBATS model hasn't fully captured the time dependent structure in the series.
-
-Anderson-Darling normality test:
-```{r}
-ad.test(residuals(ARIMA_model1))
-```
-The p-value is very small, I reject the null hypothesis that the residuals are normally distributed and conclude that the residuals are non-normal.
-
-ARCH test on residuals:
-```{r}
-ArchTest(residuals(ARIMA_model1), lags = 48)
-```
-The p-value is much smaller than 0.05 which means I reject H0 (that there is no ARCH effect (residuals are homoskedastic)) and conclude that there is evidence of heteroskedasticity
-
-Checking for constant variance in plot:
-```{r}
-plot(residuals(ARIMA_model1) ~ fitted(ARIMA_model1))
-```
-As the fitted values increase, the residuals fan out, showing increasing variance.
-
-There's a tight cluster around zero residuals for lower fitted values.
-
-Due to these results I'm going to try fitting an ARIMA-GARCH model and see how its forecasting accuracy compares to my ARIMA and STL-ARIMA models. I'm choosing a GARCH model because its useful for capturing volatility clustering in time series data, particularly when the residuals show heteroskedasticity. By modelling the conditional variance it accounts for the changes in volatility over time.
-
-Checking mean is reasonably close to zero with a one sample t-test:
-```{r}
-t.test(residuals(ARIMA_model1), mu = 0)
-
-```
-The mean of the residuals is 0.023 
-
-The p-value of the one sample t-test is 0.8714, there is not enough evidence to reject the null hypothesis, I conclude that the mean of the residuals is equal to zero.
-
-This tells me the model is unbiased, with residuals (errors) centered around 0. It also tells me that the models forecasts aren't systematically over or under predicting.
-
-```{r}
-acf(residuals(ARIMA_model1))
-```
-Most autocorrelation bars fall within the dashed blue confidence bands, suggesting they're not statistically significant.
-
-There’s no strong pattern of lingering autocorrelation. The residuals are behaving like white noise.
-
-```{r}
-pacf(residuals(ARIMA_model1))
-```
-Most lags fall within the blue dashed confidence bands, meaning their partial autocorrelations aren’t statistically significant.
-
-There are a few spikes outside of the confidence bounds, particularly at lag 1 suggesting short-term autocorrelation. This implies that the AR term (p) is slightly under-specified. I am going to try increasing the AR component to try and capture the remaining autocorrelation.
-
-Checking that the time series is invertible (eg. if its errors can be represented as a weighted sum of past observations)
-
-```{r}
-ARIMA_model1$coef
-```
-The MA term ma1 and seasonal MA terms sma1 and sma2 all have absolute values less than 1, so the invertibility condition is satisfied.
-
-However the MA term ma1 is -0.97 which is quite close to 1. This isn't too concerning since the residuals don't appear to have any autocorrelation or patterns, and there was no warning from R when fitting the model (R can give a warning "possible non-invertible MA part")
-
-I'm going to check the roots of the MA polynomial (All roots should be outside the unit circle (modulus > 1) for the model to be invertible if the model violates invertibility).
-
-```{r}
-ma_coefs <- c(1, -ARIMA_model1$coef["ma1"])  # Inverting sign for root checking
-Mod(polyroot(ma_coefs))  # Gives modulus of each root (polyroot gives the complex roots)
-```
-
-I'm checking the seasonal MA separately from the non seasonal MA because the invertibility condition must hold for both polynomials (non seasonal and seasonal) independently.
-
-```{r}
-sma_coefs <- c(1, -ARIMA_model1$coef["sma1"], -ARIMA_model1$coef["sma2"])
-Mod(polyroot(sma_coefs))
-```
-
-For invertibility, the modulus (absolute value) of all roots must be larger than 1.
-
-All of these are well outside the unit circle (i.e. modulus > 1), which means the ARIMA model satisfies the invertibility condition for both the non-seasonal and seasonal MA components.
-
-## STL-ARIMA
-```{r}
-checkresiduals(STL_ARIMA_model1)
-```
-The p-value is extremely small I reject the null hypothesis that there is no autocorrelation in the residuals and conclude that there is autocorrelation in the residuals. This means that the TBATS model hasn't fully captured the time-dependent structure in the series.
-
-Anderson-Darling normality test:
-```{r}
-ad.test(residuals(STL_ARIMA_model1))
-```
-The p-value is very small, I reject the null hypothesis that the residuals are normally distributed and conclude that the residuals are non-normal.
-
-Checking for constant variance and mean zero in plot:
-```{r}
-plot(residuals(STL_ARIMA_model1) ~ fitted(STL_ARIMA_model1))
-```
-As the fitted values increase, the residuals fan out, showing increasing variance.
-
-There's a tight cluster around zero residuals for lower fitted values.
-
-Checking mean is reasonably close to zero with a one sample t-test:
-```{r}
-t.test(residuals(STL_ARIMA_model1), mu = 0)
-
-```
-The mean of the residuals is 0.015 
-
-The p-value of the one sample t-test is 0.9019, there is not enough evidence to reject the null hypothesis, I conclude that the mean of the residuals is equal to zero.
-
-```{r}
-acf(residuals(STL_ARIMA_model1))
-```
-The models residuals are like white noise, most of the bars are within the confidence bounds.
-
-```{r}
-pacf(residuals(STL_ARIMA_model1))
-```
-There are significant spikes outside the confidence bands, this suggests that there are lags that aren't captured by my current AR structure.
-
-I am going to increase the AR component for the model.
-
-Checking that the time series is invertible (eg. if its errors can be represented as a weighted sum of past observations)
-
-```{r}
-arima_part <- STL_ARIMA_model1$model
-arima_part$coef
-```
-The MA term ma1 has an absolute value of less than 1, so the invertibility condition is satisfied.
-
-However the MA term ma1 is -0.96 which is quite close to 1. This isn't too concerning since the residuals don't appear to have any autocorrelation or patterns, and there was no warning from R when fitting the model.
-
-I'm going to check the roots of the MA polynomial (All roots should be outside the unit circle (modulus > 1) for the model to be invertible if the model violates invertibility).
-
-```{r}
-ma_coefs <- c(1, -arima_part$coef["ma1"])  # Inverting sign for root checking
-Mod(polyroot(ma_coefs))  # Gives modulus of each root (polyroot gives the complex roots)
-```
-
-For invertibility, the modulus (absolute value) of all roots must be larger than 1.
-
-Since the absolute value of the root is outside the unit circle (i.e. modulus > 1), this means the ARIMA part of the STL-ARIMA model satisfies the invertibility condition for both the MA components.
-
-# Model refinement
-Applying a box cox transformation to the data to deal with non-normality:
-```{r}
-lambda <- BoxCox.lambda(time_series_data)
-ts_bc <- BoxCox(time_series_data, lambda)
-```
-
-```{r}
-qqnorm(ts_bc, main = "Q-Q Plot of boxcox-transformed data")
-qqline(ts_bc, col = "blue", lwd = 2)
-```
-There is a curved pattern in the data which indicates that the data is skewed or is not normally distributed.
-
-```{r}
-hist(ts_bc, breaks = 50, probability = TRUE,
-     main = "Histogram of boxcox-transformed data", col = "steelblue3")
-lines(density(ts_bc), col = "red", lwd = 2)
-```
-
-The data is not centered around zero, so its not a standard normal distribution.
-
-The data appears to be right skewed.
-
-The data is not normally distributed, however the box-cox transformed data is closer to a normal distribution than the untransformed data, so I will be using it for further modelling.
-
-Anderson-Darling normality test:
-```{r}
-ad.test(ts_bc)
-```
-The small p-value indicates that the data is still not normal even after a BoxCox transformation.
-
-Checking for outliers with Tukey's Fences:
-```{r}
-y <- as.numeric(time_series_data)
-
-# Computing the basic boxplot stats
-stats <- boxplot.stats(y)$stats  # Q1, median, Q3, … 
-iqr   <- stats[3] - stats[1]     # Q3 - Q1
-
-# Defining the outer fences
-lower <- stats[1] - 3*iqr
-upper <- stats[3] + 3*iqr
-
-# Finding the outliers
-outliers_global <- which(y < lower | y > upper)
-
-length(outliers_global)
-```
-There are 84 outliers according to Tukey's Fences.
-
-Visualizing the outliers on a time series plot:
-```{r}
-ggplot(Training_set, aes(x = TradingDate, y = DollarsPerMegawattHour)) + 
-  geom_area(fill = "steelblue3")+
-  geom_line() +
-  scale_x_date(date_breaks = "1 month", date_labels = "%B", guide = guide_axis(n.dodge = 2)) +
-  ggtitle("Dollars Per Megawatt Hour over time") +
-  # Adding red points for outliers
-  geom_point(data = Training_set[outliers_global, ], aes(x = TradingDate, y = DollarsPerMegawattHour),
-             color = "red", size = 2, alpha = 0.8) +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-There are outliers in the series but since energy prices are so volatile, I don't want to remove them, I am choosing not to discard the outliers in the series.
-
-# Refitting models:
-For both models I have increased AR component by 1, and applied a box-cox transformation to the time series data.
-
-Fitting ARIMA:
-```{r}
-ARIMA_model2 <- Arima(ts_bc, order = c(4,1,1), # Non-seasonal ARIMA(p,d,q)
-             seasonal = list(order = c(0, 0, 2), period = 48),  # Seasonal ARIMA(P,D,Q)[S]
-             include.constant = FALSE)  # Excluding constant since first order differencing is used
-```
-
-Fitting an STL - ARIMA to seasonally adjusted series:
-```{r}
-STL_ARIMA_model2 <- stlm(ts_bc, s.window = 48, robust = TRUE,
-                         modelfunction = function(x) Arima(x, order = c(6, 1, 1)))
-
-```
-
-For both of these models I have only increased the AR component by 1, and I have not applied a box-cox transformation to the time series data.
-
-Fitting ARIMA:
-```{r}
-ARIMA_model3 <- Arima(time_series_data, order = c(4,1,1), # Non-seasonal ARIMA(p,d,q)
-             seasonal = list(order = c(0, 0, 2), period = 48),  # Seasonal ARIMA(P,D,Q)[S]
-             include.constant = FALSE)  # Excluding constant since first order differencing is used
-```
-
-Fitting an STL - ARIMA to seasonally adjusted series:
-```{r}
-STL_ARIMA_model3 <- stlm(time_series_data, s.window = 48, robust = TRUE,
-                         modelfunction = function(x) Arima(x, order = c(6, 1, 1)))
-
-```
-
-Fitting an ARIMA-GARCH model:
-```{r}
-spec <- ugarchspec(
-  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
-  mean.model     = list(armaOrder = c(4, 1), include.mean = TRUE), # AR(4) and MA(1)
-  distribution.model = "norm"
-)
-
-```
-Since GARCH models don't handle differencing internally I'm applied a first order differencing to my time series prior to fitting the model.
-
-I'm starting with a simple ARIMA-GARCH model with 1 GARCH term (lagged conditional variances) and 1 ARCH term (lagged squared residuals).
-
-If the GARCH model doesn't have high forecasting accuracy I'll try setting distribution.model to "std" for Student-t (for heavy tails) and adjusting the GARCH order
-
-```{r}
-GARCH_model <- ugarchfit(spec = spec, data = first_order_diff)
-```
-
-```{r}
-show(GARCH_model)
-```
-I have: sGARCH(1,1) and ARFIMA(4,1,1) (note d = 1 because I fit first order differencing to data prior to fitting model)
-
-Comparing the simple ARIMA-GARCH with ARIMA-GARCH models with higher GARCH and ARCH terms.
-```{r}
-spec2 <- ugarchspec(
-  variance.model = list(model = "sGARCH", garchOrder = c(1, 2)),
-  mean.model     = list(armaOrder = c(4, 1), include.mean = TRUE), # AR(4) and MA(1)
-  distribution.model = "norm"
-)
-GARCH_model2 <- ugarchfit(spec = spec2, data = first_order_diff)
-```
-
-```{r}
-spec3 <- ugarchspec(
-  variance.model = list(model = "sGARCH", garchOrder = c(2, 1)),
-  mean.model     = list(armaOrder = c(4, 1), include.mean = TRUE), # AR(4) and MA(1)
-  distribution.model = "norm"
-)
-GARCH_model3 <- ugarchfit(spec = spec3, data = first_order_diff)
-```
-
-```{r}
-spec4 <- ugarchspec(
-  variance.model = list(model = "sGARCH", garchOrder = c(2, 2)),
-  mean.model     = list(armaOrder = c(4, 1), include.mean = TRUE), # AR(4) and MA(1)
-  distribution.model = "norm"
-)
-GARCH_model4 <- ugarchfit(spec = spec4, data = first_order_diff)
-```
-
-Picking best GARCH model to move forward with:
-
-```{r}
-ic1 <- infocriteria(GARCH_model)
-ic2 <- infocriteria(GARCH_model2)
-ic3 <- infocriteria(GARCH_model3)
-ic4 <- infocriteria(GARCH_model4)
-data.frame(
-  Model = c("GARCH(1,1)", "GARCH(1,2)", "GARCH(2,1)", "GARCH(2,2)"),
-  AIC = c(ic1[1], ic2[1], ic3[1], ic4[1]),
-  BIC = c(ic1[2], ic2[2], ic3[2], ic4[2])
-)
-```
-The ARIMA-GARCH model with GARCH(1,2) had the lowest AIC and BIC, meaning it is the best ARIMA-GARCH model, I will move forward with that model for forecasting.
-
-# Final Forecasting and reporting
-
-I'm going to forecast 48 trading periods for twelve months
-
-ARIMA 2nd model:
-```{r}
-forecast12months_A <- forecast(ARIMA_model2, h = 17520)
-```
-
-Returning to the original scale (boxcox scale was used for training the ARIMA model) after forecasting to obtain interpretable electricity price predictions.
-```{r}
-forecast_raw_A <- InvBoxCox(forecast12months_A$mean, lambda) - 1
-```
-
-```{r}
-forecast_raw_ARIMA2 <- ts(forecast_raw_A, start = c(2018, 1), frequency = 48)
-```
-
-STL-ARIMA 2nd model:
-```{r}
-forecast12months_S <- forecast(STL_ARIMA_model2, h = 17520)
-```
-
-Returning to the original scale (boxcox scale was used for training the STL-ARIMA model) after forecasting to obtain interpretable electricity price predictions.
-```{r}
-forecast_raw_S <- InvBoxCox(forecast12months_S$mean, lambda) - 1
-```
-
-```{r}
-forecast_raw_STL2 <- ts(forecast_raw_S, start = c(2018, 1), frequency = 48)
-```
-
-STL-ARIMA 3rd model:
-```{r}
-forecast12months_S3 <- forecast(STL_ARIMA_model3, h = 17520)
-```
-
-```{r}
-forecast_raw_STL3 <- ts(forecast12months_S3, start = c(2018, 1), frequency = 48)
-```
-
-ARIMA 3rd model:
-```{r}
-forecast12months_A3 <- forecast(ARIMA_model3, h = 17520)
-```
-
-```{r}
-forecast_raw_ARIMA3 <- ts(forecast12months_A3, start = c(2018, 1), frequency = 48)
-```
-
-Forecasting ARIMA-GARCH model:
-```{r}
-forecast_Garch <- ugarchforecast(GARCH_model2, n.ahead = 17520)
-mean_fc_vector <- as.numeric(fitted(forecast_Garch)[ , 1])
-
-# I first order differenced the time series before fitting the model so I'm converting back
-recovered_forecast <- as.numeric(cumsum(mean_fc_vector))
-
-# Adding the Last Observed Value of the original series:
-last_value <- as.numeric(tail(time_series_data, 1))
-final_forecast <- last_value + recovered_forecast
-forecast_Garch2 <- ts(final_forecast, start = c(2018, 1), frequency = 48)
-
-```
-
-# Overall Model Comparison
-```{r}
-ARIMA_acc2 <- accuracy(forecast_raw_ARIMA2, Test_time_series)
-STL_ARIMA_acc2 <- accuracy(forecast_raw_STL2, Test_time_series)
-ARIMA_acc3 <- accuracy(forecast_raw_ARIMA3, Test_time_series)
-STL_ARIMA_acc3 <- accuracy(forecast_raw_STL3, Test_time_series)
-ARIMA_GARCH_acc <- accuracy(forecast_Garch2, Test_time_series)
-```
-
-```{r}
-acc_list2 <- list(ARIMA = ARIMA_acc, ARIMA_2 = ARIMA_acc2, ARIMA_3 = ARIMA_acc3, 
-                  STL_ARIMA = STL_ARIMA_acc, STL_ARIMA_2 = STL_ARIMA_acc2, STL_ARIMA_3 = STL_ARIMA_acc3,
-                  ARIMA_GARCH = ARIMA_GARCH_acc)
-
-acc_df2 <- map_df(acc_list2, ~ as.data.frame(.x)["Test set", ], .id = "Model")
-
-```
-
-Manually calculating the MASE values for box-cox ARIMA and STL-ARIMA models and the ARIMA-GARCH model. Also calculating the ACF1 for the ARIMA-GARCH model.
+Manually calculating MASE for ARIMA_GARCH:
 ```{r}
 # Naive forecast errors from training set
 naive_errors <- diff(time_series_data)  # Assuming naive one-step forecasts
@@ -922,120 +1116,93 @@ naive_errors <- diff(time_series_data)  # Assuming naive one-step forecasts
 mae_naive <- mean(abs(naive_errors))
 
 # MAE from the ARIMA-GARCH forecast
-mae_garch <- mean(abs(Test_time_series - as.numeric(forecast_Garch2)))
+mae_garch <- mean(abs(Val_time_series - as.numeric(forecast_GARCH)))
 
 # MASE for ARIMA GARCH
 mase_garch <- mae_garch / mae_naive
-
-# ARIMA
-naive_errors <- diff(time_series_data)
-mae_naive <- mean(abs(naive_errors))
-mase_ARIMA <- mean(abs(Test_time_series - as.numeric(forecast_raw_ARIMA3$mean)))
-mase_ARIMA <- mase_ARIMA / mae_naive
-
-# STL-ARIMA
-naive_errors <- diff(time_series_data)
-mae_naive <- mean(abs(naive_errors))
-mase_STL <- mean(abs(Test_time_series - as.numeric(forecast_raw_STL3$mean)))
-mase_STL <- mase_STL / mae_naive
-
-# ARIMA-GARCH ACF1
-residuals_garch <- Test_time_series - as.numeric(forecast_Garch2)
-acf_result <- acf(residuals_garch, lag.max = 1, plot = FALSE)
-acf1_value <- acf_result$acf[2]  # Index 2 = lag-1 autocorrelation
-
 ```
 
 ```{r}
-acc_df2[2, 7] <- mase_ARIMA
-acc_df2[5, 7] <- mase_STL
-acc_df2[7, 7] <- mase_garch
-acc_df2[7, 8] <- acf1_value
+acc_df <- map_df(acc_list, ~ as.data.frame(.x)["Test set", ], .id = "Model")
+acc_df[6, 7] <- mase_garch
+
+acc_df %>% arrange(MASE)
 ```
 
+The ARIMA model has the best ME, RMSE, MAE, MPE, MAPE, MASE and Theil's U. It had the second best ACF1. ARIMA was the most accurate forecasting model.
+
+The worst model was ARIMA-GARCH with the worst performance on every metric.
+
+SARIMA and STL-ARIMA had similar performance with SARIMA having a slightly lower value for most metrics. STL-ARIMA had the lower value for ME and MPE.
+
+All models have ACF1 values of 0.65 or larger indicating a strong positive autocorrelation at lag 1, this suggests that every model fitted has not yet captured all autocorrelation in the time series. Ideally, residuals should resemble white noise (where ACF1 approximately equals 0). During model refinement I will try adding more AR and MA terms to try and capture this autocorrelation. I will also reassess the differencing order to see if the series needs further transformation.
+
+The MASE for all models, except for ARIMA-GARCH, is less than 1 which means they beat a naive "yesterday's price" benchmark on average absolute error. On average, these models are producing more precise forecasts than simply carrying forward the last known value.
+
+The best model so far is the ARIMA(3,1,1) model.
+
+## ARIMA interpretation
+The Mean Absolute Scaled Error (MASE) for the ARIMA model is 0.67, which means that, on average, the ARIMA model's forecast errors are 33% smaller than those of a naive (random walk) model. The ARIMA model outperforms a naive forecasting model, where each forecasted energy price is just the last observed price carried forward.
+
+Note that when I say "smaller errors", I mean that when the model's forecast for an energy price was incorrect, the size (magnitude) of the error was smaller. So the distance between the forecasted and actual price was smaller for the ARIMA model than that of a naive model.
+
+The models mean error was 4.25 which means on average its forecasts overestimate actual prices by about 4.25 dollars per megawatt hour.
+
+The models root mean square error was 18.39 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value is probably due to how volatile the data is.
+
+The models mean absolute error was 13.12 which means that forecasts were off by 13.12 units on average. This is 13.04% of the annual mean, the mean energy price for 2018 was 100.62, so the mean absolute error isn't that high considering how volatile the data is.
+
+The mean percentage data was 0.61%, which means the models forecasts are slightly overestimate actual electricity prices overall.
+
+The mean absolute percentage error was 15.29% which means that the models forecasts were off by 15.29% on average.
+
+The models ACF1 was 0.65 which indicates that the residuals are moderately autocorrelated so there is some structure or pattern in the data that the model did not capture.
+
+The ARIMA model did better than the STL-ARIMA, ARIMAX and ARIMA-GARCH models which so far shows that a more complex model does not equal a better performance, those other models were overfitting on the training data and not generalizing well enough to forecast the following year.
+
+Theil's U is 1.38 which means that the ARIMA models forecasts are slightly worse than the naive forecasts, but this could be due to RMSE sensitivity (Theil's U is sensitive to large errors).
+
+I'm going to look at the residuals of the models and do some model refinement. I will then forecast the 2019 energy prices with the refined models and consider the models accuracy.
+
+## Plot: actual vs forecast for best model
+
 ```{r}
-acc_df2
-```
-
-The MASE had to be manually calculated for my two of the models (ARIMA 2 and STL-ARIMA 2) presumably due to the box-cox transformation I applied to the time series for those models. I also had to manually calculate the MASE and ACF1 for my ARIMA-GARCH model.
-
-The original ARIMA model and ARIMA model 3 had identical results which means that increasing the AR component from AR(3) to AR(4) did not significantly improve the model. The original ARIMA model and ARIMA model 3 had the best results in regards to their RMSE, MAE, MAPE, MASE and ACF1. These models seem to have strong accuracy and are reliably forecasting final energy prices for 2018.
-
-The 2nd ARIMA model and the second STL-ARIMA model had the worst performance with extremely high RMSE and MAE. The models had the highest ACF1.
-Slightly higher MAE, RMSE, and MASE than ARIMA, but solid MAPE and relatively low ACF1
-
-The ARIMA_GARCH model performed better than the box-cox ARIMA and STL-ARIMA models, but worse than my original ARIMA model in regards to the RMSE, MAE, MPE, MAPE, MASE and ACF1 values. It had a better ME value though.
-
-The model that performed best was my original ARIMA model.
-
-The prior adjustments to the original ARIMA and STL-ARIMA models did not improve the ARIMA model's performance but it did improve the STL-ARIMA model's performance.
-The box-cox transformation of the series made the performance of the models much worse.
-The best model was ARIMA(3,1,1)(0,0,2)[48] and the worst models were the box-cox ARIMA and STL-ARIMA models.
-
-```{r}
-start_time     <- as.POSIXct("2018-01-01 00:00:00", tz = "UTC")
+plot_actual_forecast <- function(start_time, actual_vals, start_year, forecasts, model_name) {
+start_time     <- as.POSIXct(start_time, tz = "UTC")
 times_forecast <- seq(start_time, by = "30 min", length.out = 17520)
 
-Test_time_series2 <- ts(test_data$DollarsPerMegawattHour, frequency = 48, start = c(2018, 1))
+Test_time_series2 <- ts(actual_vals$DollarsPerMegawattHour, frequency = 48, start = c(start_year, 1))
 df_actual <- data.frame(Date = times_forecast, Value = as.numeric(Test_time_series2), Type = "Actual")
 
 df_forecast <- data.frame(
   Date  = times_forecast,
-  Mean  = as.numeric(forecast_raw_ARIMA$mean),
-  Lower = as.numeric(forecast_raw_ARIMA$lower[,2]),  # 95% lower bound
-  Upper = as.numeric(forecast_raw_ARIMA$upper[,2]),  # 95% upper bound
+  Mean  = as.numeric(forecasts$mean),
+  Lower = as.numeric(forecasts$lower[,2]),  # 95% lower bound
+  Upper = as.numeric(forecasts$upper[,2]),  # 95% upper bound
   Type  = "Forecast"
 )
 
-```
-
-```{r}
 ggplot() +
   geom_line(data = df_actual, aes(x = Date, y = Value, color = "Actual"), size = 0.55) +
   geom_line(data = df_forecast, aes(x = Date, y = Mean, color = "Forecast"), size = 1, alpha = 0.8, linetype = "dashed") +
   geom_ribbon(data = df_forecast, aes(x = Date, ymin = Lower, ymax = Upper), fill = "lightblue", alpha = 0.3) +
   scale_color_manual(values = c("Actual" = "firebrick1", "Forecast" = "steelblue3")) +
   scale_x_datetime(date_breaks = "1 month",  date_labels = "%B",  expand = c(0, 0), guide = guide_axis(n.dodge = 2)) +
-  labs(title = "Forecast vs Actuals (Jan–Jun 2018)",
-       x = "Date", y = "Electricity Price", color = "Legend") +
+  labs(title = paste(model_name, " Forecast vs Actual Prices for ", start_year, sep = ""),
+       x = "Month", y = "Electricity Price", color = "Legend") +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5))
+}
 ```
 
-This plot shows my ARIMA model forecast for the final half hourly electricity prices for the year 2018 compared to the actual values for that year.
-
-There are large fluctuations in the actual electricity prices, particularly in July and November.
-
-The forecast as shown by the blue dashed lines appears to follow the overall trend of electricity prices. Its 95% confidence interval (the light blue ribbon) covers the majority of the electricity prices for 2018 but misses many large spikes between June and December which means the model is underestimating the real volatility.
-
-However it does model the initial five months January to May quite well.
-
-Due to the models issues with volatility if I were to continue forecasting the 2018 energy price data with another model I would consider a GARCH model as it is good for modelling volatility clustering.
-
-# Conclusion
-
-The best model was the ARIMA model: ARIMA(3,1,1)(0,0,2)[48].
-
-Its non-seasonal component had AR(3) (which captured short term autocorrelation up to lag 3), I(1) (a first order differencing to make the data stationary), MA(1) (which corrected for noise and shocks using lag 1 residuals). Its seasonal component with a periodicity of 48 (the seasonality repeats every full day as there are 48 trading periods per day) and it did not include a seasonal AR or I (no seasonal autocorrelation or differencing) and had a seasonal MA(2) (uses forecast errors from 1 and 2 days ago (lags at 48 and 96 intervals) to adjust the current days forecast).
-
-The models mean error was 6.56 which means on average its forecasts overestimate actual prices by about 6.56 dollars per megawatt hour.
-
-The models root mean square error was 19.17 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value is probably due to how volatile the data is.
-
-The models mean absolute error was 13.71 which means that forecasts were off by 13.71 units on average. This is 13.6% of the annual mean, the mean energy price for 2018 was 100.62, so the mean absolute error isn't that high considering how volatile the data is.
-
-The mean percentage data was 3.29% which means that the model tends to forecast higher electricity prices than reality.
-
-The mean absolute percentage error was 15.65% which means that the models forecasts were off by 15.65% on average.
-
-The models MASE was 0.70 which is a scaled comparison to a naive model which means the ARIMA model outperforms a naive forecast.
-
-The models ACF1 was 0.65 which indicates that the residuals are moderately autocorrelated so there is some structure or pattern in the data that the model did not capture.
-
-The ARIMA model did better than the STL-ARIMA, ARIMAX and TBATS models which just shows that a more complex model does not equal a better performance, those other models were overfitting on the training data and not generalizing well enough to forecast the following year.
+```{r}
+plot_actual_forecast("2018-01-01 00:00:00", val_set, 2018, forecast_ARIMA, "ARIMA(3, 1, 1)")
+```
 
 # References and Citations
 
-Electricity Authority. (n.d.). Final energy prices by month [Dataset]. EMI – Electricity Market Information. Retrieved between May 2 and July 13, 2025, from
+Electricity Authority. (n.d.). Final energy prices by month [Dataset]. EMI – Electricity Market Information. Retrieved between July 11 and July 15, 2025, from
 https://www.emi.ea.govt.nz/Wholesale/Datasets/DispatchAndPricing/FinalEnergyPrices/ByMonth
 
+Electricity Authority. (n.d.). Generation output by plant [Dataset]. EMI – Electricity Market Information. Retrieved between July 18 and July 20, 2025, from
+https://www.emi.ea.govt.nz/Wholesale/Datasets/Generation/Generation_MD
