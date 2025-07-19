@@ -245,10 +245,10 @@ The models ACF1 was 0.65 which indicates that the residuals are moderately autoc
 The ARIMA model did better than the STL-ARIMA, ARIMAX and TBATS models which just shows that a more complex model does not equal a better performance, those other models were overfitting on the training data and not generalizing well enough to forecast the following year.
 
 # References and Citations
-# References and Citations
 
 Electricity Authority. (n.d.). Final energy prices by month [Dataset]. EMI – Electricity Market Information. Retrieved between July 11 and July 15, 2025, from
 https://www.emi.ea.govt.nz/Wholesale/Datasets/DispatchAndPricing/FinalEnergyPrices/ByMonth
 
 Electricity Authority. (n.d.). Generation output by plant [Dataset]. EMI – Electricity Market Information. Retrieved between July 18 and July 20, 2025, from
 https://www.emi.ea.govt.nz/Wholesale/Datasets/Generation/Generation_MD
+
