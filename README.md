@@ -1,13 +1,26 @@
 # ARIMA-Energy-Price-Forecaster
 ## Summary
-Forecasted New Zealand energy prices using one year of half hourly data from the New Zealand Electricity Authority. Conducted stationarity diagnostics and applied first-order differencing to stabilize the series. Performed autocorrelation and partial autocorrelation analysis to inform model development. Built and evaluated four forecasting models ARIMA, STL-ARIMA, ARIMAX, and TBATS. Compared model performance using forecast accuracy metrics including ME, MAE, and RMSE.
+Forecasted New Zealand energy prices using one year of half hourly data from the New Zealand Electricity Authority. Conducted stationarity diagnostics and applied first-order differencing to stabilize the series. Performed autocorrelation and partial autocorrelation analysis to inform model development. Built and evaluated five forecasting models ARIMA, SARIMA, STL-ARIMA, ARIMAX, and ARIMA-GARCH. Compared model performance using forecast accuracy metrics including ME, MAE, and RMSE.
 
-The ARIMA(3,1,1)(0,0,2)[48] model demonstrated the highest performance across the ME, RMSE, MAE, MPE, MAPE, and MASE metrics.
+The ARIMA(3,1,1) model, trained on the energy price data from 2017, demonstrated the highest performance on the 2018 validation set across the ME, RMSE, MAE, MPE, MAPE, and MASE evaluation metrics.
 
 This project was made using RStudio.
 
+## Purpose: 
+Research question: Which time series model most accurately predicts 2019 energy prices, using historical energy price data from 2017 and 2018?
+
+My hypothesis was that an ARIMA model would outperform the more complex models in predicting 2019 energy prices using 2017 and 2018 data.
+
+Model performance was assessed using ME, RMSE, MAE, MPE, MAPE and MASE.
+
+My training set was energy price data from 2017, my validation set was 2018 data and my test set was 2019 data.
+
+After refining the models parameters using the 2018 validation set, the final models were retrained on the combined the 2017 and 2018 datasets. The final models performance was evaluated using the 2019 data (the unseen test set).
+
+Note that this project is only using one point of connection ABY0111 for simplicity, it was selected because it is the first point of connection alphabetically.
+
 # Data cleaning and wrangling
-I loaded in the training set, which was 12 months of half hourly data from the Electricity Authority.
+I initally loaded in the training set of 2017 data, which consisted of 12 months of half hourly data from the Electricity Authority.
 
 I restricted the dataset to one Point of Connection (ABY0111) for simplicity.
 
@@ -22,9 +35,12 @@ The PointOfConnection variable was an ordinal categorical variable, it gives the
 The DollarsPerMegawattHour variable was numerical, it gives the wholesale price of electricity. It’s the price at which electricity was bought and sold in the wholesale market at a specific date and time, and point of connection.
 
 The TradingPeriod had a max value of 50 even though there are only 48 trading periods in New Zealand’s electricity market. This was because daylight savings ended on 2017-04-02 and clocks were turned back one hour, meaning there was an extra hour for that day, resulting in two more 30 minute trading periods
-I removed these observations from the dataset as I wanted to maintain a consistent daily structure, which is important for ARIMA.
 
-There were no missing values or NA's in the dataset
+I removed these additional observations from the dataset as I wanted to maintain a consistent daily structure, which is important for ARIMA.
+
+Due to daylight savings 2017-09-24 had two less trading periods, to maintain a consistent daily structure I used linear interpolation to fill this gap.
+
+There were no other missing values or NA's in the dataset
 
 # EDA
 
@@ -87,38 +103,47 @@ I performed an Augmented Dickey-Fuller test and Phillips–Perron test both of w
 
 # Accuracy metrics
 
-I fitted four models:
+I fitted five models:
 
-ARIMA(3,1,1)(0,0,2)[48]
+ARIMA(3,1,1)
+
+SARIMA: ARIMA(3,1,1)(0,0,1)[48]
 
 STL-ARIMA(5,1,1)
 
-An ARIMAX model where the xreg arguement had five predictors (Day_of_Week, Is_Weekend, Month, Hour_of_Day, Is_peak)
+An ARIMAX model where the xreg had regressors Season_dummies (Winter, Summer and spring), Is_Weekend and Energy_Generation. Note that one of the season dummies was dropped to avoid the dummy variable trap.. the xreg variable Energy Generation was forecasted using an ARIMA(3,0,1)(1,1,0)[48] with drift model rather than using the actual energy generation values. This was done because the actual values of energy generation won't be known ahead of time for forecasting, so I will need to estimate the values of this variable for testing and any real world usage. The model is ARIMA(2,1,2)(0,0,1)[48] errors.
 
-A TBATS model with included ARMA errors.
+I wanted to understand the models sensitivity to inaccurate energy generation values, to do this I made an additional ARIMAX model where the only difference was that Energy_Generation contained its real values.
+I then compared it to my original ARIMAX model.
 
-They were all trained on a time series containing 12 months of half hourly final energy price data from 2017-01-01 to 2017-12-31.
+An ARIMA-GARCH model which was selected using AIC and BIC. I made and used a grid search to find the best model.
 
-After forecasting with those models I obtained the accuracy metrics:
+All of the models were trained on a time series containing 12 months of half hourly final energy price data from 2017-01-01 to 2017-12-31.
 
-|         | ME   | RMSE   | MAE   |  MAPE |  MAPE | MASE  | ACF1   |
-|---------|------|--------|-------|-------|-------|-------|--------|
-ARIMA     |6.56	 | 19.17  |	13.71	| 3.29	| 15.65	| 0.70	| 0.65   |
-STL_ARIMA |12.25 |	21.63	| 17.83	| 10.29	| 19.71	| 0.91	| 0.66	 |
-ARIMAX    |53.42 |	56.51	| 53.42	| 58.78	| 58.78	| 2.74	| 0.65   |
-TBATS     |2.16  |	23.57	| 17.06	| -2.10	| 20.54	| 0.87	| 0.74   |
+I obtained the following accuracy metrics by forecasting the energy prices for 2018 and comparing them against the actual 2018 values for each model:
 
-The ARIMA model had the best RMSE, MAE, MPE, MAPE and MASE. ARIMA was the most accurate forecasting model.
+| Model     | ME   | RMSE   | MAE   |  MAPE |  MAPE | MASE  | ACF1   | Theil's U |
+|-----------|------|--------|-------|-------|-------|-------|--------|-----------|
+ARIMA       |4.25  | 18.39  |	13.12	| 0.61	| 15.29	| 0.67	| 0.65   | 1.38      |
+SARIMA      |6.67	 | 19.18  |	13.62	| 3.44	| 15.51	| 0.70	| 0.65   | 1.38      |
+STL_ARIMA   |4.65  |	19.77	| 14.90	| 0.82	| 17.62	| 0.76	| 0.69	 | 1.53      |
+ARIMAX_2    |7.96  |	20.78	| 15.85	| 4.93	| 18.09	| 0.81	| 0.68   | 1.50      |
+ARIMAX      |7.80  |	20.67	| 15.88	| 4.79	| 18.08	| 0.81	| 0.67   | 1.47      |
+ARIMA-GARCH |27.11 | 104.21	| 51.41	| -1844.30 | 1878.63 | 6.34 | 0.91 | 10.92   |
 
-The worst model was ARIMAX with the worst ME, RMSE, MAE, MPE, MAPE and MASE.
+The ARIMA model has the best ME, RMSE, MAE, MPE, MAPE, MASE and Theil's U. It had the second best ACF1. ARIMA was the most accurate forecasting model.
 
-TBATS had the best ME but had higher MAE, MAPE, and MASE than STL-ARIMA
+The worst model was the ARIMA-GARCH model with the worst performance on every metric.
 
-All models had similar ACF1 values which suggests that the residuals for all models still had short range correlation.
+SARIMA and STL-ARIMA had similar performance with SARIMA having a slightly lower value for most metrics. STL-ARIMA had the lower values for ME and MPE though.
 
-The MASE for ARIMA, STL-ARIMA and TBATS was less than 1 which means they beat a naive "yesterday's price" benchmark on average absolute error.
+The ARIMAX model with the (ARIMA(3,0,1)(1,1,0)[48] with drift) forecasted energy generation variable in its xreg (labeled ARIMAX_model2), performed similarly to ARIMAX with the actual values for energy generation in its xreg. There is an average difference of 0.05 between the performances. This tells me that the estimated 
 
-I decided to check the residuals of the ARIMA and STL-ARIMA models and perform model refinement. I did not be continue with the worst performing models ARIMAX and TBATS.
+All models have ACF1 values of 0.65 or larger indicating a strong positive autocorrelation at lag 1, this suggests that every model fitted has not yet captured all autocorrelation in the time series. Ideally, residuals should resemble white noise (where ACF1 approximately equals 0). During model refinement I will try adding more AR and MA terms to try and capture this autocorrelation. I will also reassess the differencing order to see if the series needs further transformation.
+
+The MASE for all models, except for ARIMA-GARCH, is less than 1 which means they beat a naive "yesterday's price" benchmark on average absolute error. On average, these models are producing more precise forecasts than simply carrying forward the last known value.
+
+The best model so far was the ARIMA(3,1,1) model.
 
 # Structural checks and Statistical diagnostics
 ## Autocorrelation check with Ljung Box test, acf and pacf plots:
