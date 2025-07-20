@@ -2,12 +2,12 @@
 ## Summary
 Forecasted New Zealand energy prices using one year of half hourly data from the New Zealand Electricity Authority. Conducted stationarity diagnostics and applied first-order differencing to stabilize the series. Performed autocorrelation and partial autocorrelation analysis to inform model development. Built and evaluated four forecasting models ARIMA, STL-ARIMA, ARIMAX, and TBATS. Compared model performance using forecast accuracy metrics including ME, MAE, and RMSE.
 
-The  ARIMA(3,1,1)(0,0,2)[48] demonstrated the highest accuracy across the ME, RMSE, MAE, MPE, MAPE, and ACF1 metrics.
+The ARIMA(3,1,1)(0,0,2)[48] model demonstrated the highest performance across the ME, RMSE, MAE, MPE, MAPE, and MASE metrics.
 
 This project was made using RStudio.
 
 # Data cleaning and wrangling
-I loaded in the training set which was 12 months of half hourly data from the Electricity Authority.
+I loaded in the training set, which was 12 months of half hourly data from the Electricity Authority.
 
 I restricted the dataset to one Point of Connection (ABY0111) for simplicity.
 
@@ -15,7 +15,7 @@ I ensured that the datasets variables were classified correctly.
 
 The TradingDate variable was a date object ranging from 2017-01-01 to 2017-12-31.
 
-The TradingPeriod variable gives the 30 minute interval where electricity was bought and sold. It was numerical.
+The TradingPeriod variable gives the 30 minute intervals where electricity was bought and sold. It was numerical.
 
 The PointOfConnection variable was an ordinal categorical variable, it gives the grid location where electricty is entering (or exiting) a network. I’m only forecasting with the ABY0111 point of connection.
 
@@ -58,10 +58,12 @@ The bars gradually decay suggesting a persistent trend or that it's non-stationa
 
 PACF:
 There was a large spike at lag 1 in the PACF plot suggesting that the current price was heavily influenced by the immediate past period. This spike at lag 1 suggests an AR(1) structure. This supports the idea that the series has short-term autoregressive structure.
+
 Past lag 1 there was gradual tapering, rather than a sharp cutoff like a pure AR(p) process.
 
 Conclusion:
 All of the above information from the ACF and PACF plots suggests that the data was non-stationary and that there could be a seasonal component to the data.
+
 I applied first order differencing to the data to make the data stationary, as stationary data is a requirement of ARIMA.
 
 The subsequent acf and pacf plots for the first order differenced time series were:
@@ -74,8 +76,10 @@ The ACF plot no longer shows a slow decay, instead there are isolated significan
 
 PACF:
 There was a moderate spike at lag 1, outside the confidence bounds. Most subsequent lags are within the confidence bounds. This suggests a short term autoregressive pattern. This means each electricity price was influenced by its immediate predecessor.
+
 The decay after the first lag also supports that the first order differencing has stabilized the series, leaving behind no long range autocorrelation.
-Since this resembles an AR(1) structure still, when I fitted the ARIMA model I included an AR(1) component to model the autoregressive behavior.
+
+Since this still resembled an AR(1) structure, when I fitted the ARIMA model I included an AR(1) component to model the autoregressive behavior.
 
 # Stationarity Diagnostics: ADF, KPSS & Phillips–Perron
 
