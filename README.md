@@ -68,8 +68,10 @@ The prices dip again for August, September and October but then start increasing
 
 ACF:
 I saw that all of the spikes in the ACF plot are outside of the blue dashed significance bound this means that the time series data was highly autocorrelated and non-stationary. The autocorrelation at all of the lags was statistically meaningful and not just white noise. Past values have a strong influence on future ones across many lags.
+
 There was particularly high autocorrelation at the early lags. This suggests that recent values strongly influence near future behavior, implying short term memory or an autoregressive structure.
 There was a spike at around every 48 lags which suggests a seasonal pattern.
+
 The bars gradually decay suggesting a persistent trend or that it's non-stationary. This suggests the mean and variance may be changing over time, and the structure could be due to an autoregressive process or an underlying seasonal component.
 
 PACF:
@@ -87,7 +89,9 @@ The subsequent acf and pacf plots for the first order differenced time series we
 
 ACF:
 After applying first order differencing most lags in the ACF plot were within the confidence bounds, meaning there was no strong autocorrelation.
+
 There was no sharp cutoff or pattern in the plot. There were no clear periodic spikes (e.g. at lag 48), which indicated that there was no seasonality left.
+
 The ACF plot no longer shows a slow decay, instead there are isolated significant spikes in the plot. This pattern indicated that the trend had been removed and that the series was now stationary, with stable mean and variance over time.
 
 PACF:
@@ -99,7 +103,9 @@ Since this still resembled an AR(1) structure, when I fitted the ARIMA model I i
 
 # Stationarity Diagnostics: ADF, KPSS & Phillips–Perron
 
-I performed an Augmented Dickey-Fuller test and Phillips–Perron test both of which had a p-value of less than 0.01, due to the small p-value I concluded that the differenced series was stationary. The KPSS test had a p-value larger of 0.5 as a result I concluded that the differenced series was stationary.
+I performed an Augmented Dickey-Fuller test and Phillips–Perron test both of which had a p-value of less than 0.01, due to the small p-values I concluded that the differenced series was stationary.
+
+The KPSS test had a p-value larger of 0.5, as a result I concluded that the differenced series was trend stationary.
 
 # Accuracy metrics
 
@@ -111,7 +117,9 @@ SARIMA: ARIMA(3,1,1)(0,0,1)[48]
 
 STL-ARIMA(5,1,1)
 
-An ARIMAX model where the xreg had regressors Season_dummies (Winter, Summer and spring), Is_Weekend and Energy_Generation. Note that one of the season dummies was dropped to avoid the dummy variable trap.. the xreg variable Energy Generation was forecasted using an ARIMA(3,0,1)(1,1,0)[48] with drift model rather than using the actual energy generation values. This was done because the actual values of energy generation won't be known ahead of time for forecasting, so I will need to estimate the values of this variable for testing and any real world usage. The model is ARIMA(2,1,2)(0,0,1)[48] errors.
+An ARIMAX model where the xreg had regressors Season_dummies (Winter, Summer and spring), Is_Weekend and Energy_Generation. Note that one of the season dummies was dropped to avoid the dummy variable trap.
+
+The xreg variable Energy Generation was forecasted using an ARIMA(3,0,1)(1,1,0)[48] with drift model rather than using the actual energy generation values. This was done because the actual values of energy generation won't be known ahead of time for forecasting, so I will need to estimate the values of this variable for testing and any real world usage. The model is ARIMA(2,1,2)(0,0,1)[48] errors.
 
 I wanted to understand the models sensitivity to inaccurate energy generation values, to do this I made an additional ARIMAX model where the only difference was that Energy_Generation contained its real values.
 I then compared it to my original ARIMAX model.
@@ -137,7 +145,7 @@ The worst model was the ARIMA-GARCH model with the worst performance on every me
 
 SARIMA and STL-ARIMA had similar performance with SARIMA having a slightly lower value for most metrics. STL-ARIMA had the lower values for ME and MPE though.
 
-The ARIMAX model with the (ARIMA(3,0,1)(1,1,0)[48] with drift) forecasted energy generation variable in its xreg (labeled ARIMAX_model2), performed similarly to ARIMAX with the actual values for energy generation in its xreg. There is an average difference of 0.05 between the performances. This tells me that the estimated 
+The ARIMAX model with the (ARIMA(3,0,1)(1,1,0)[48] with drift) forecasted energy generation variable in its xreg (labeled ARIMAX_model2), performed similarly to ARIMAX with the actual values for energy generation in its xreg. There is an average difference of 0.05 between the performances. This tells me that the use of an estimated Energy_generation variable does not harm model performance significantly.
 
 All models have ACF1 values of 0.65 or larger indicating a strong positive autocorrelation at lag 1, this suggests that every model fitted has not yet captured all autocorrelation in the time series. Ideally, residuals should resemble white noise (where ACF1 approximately equals 0). During model refinement I will try adding more AR and MA terms to try and capture this autocorrelation. I will also reassess the differencing order to see if the series needs further transformation.
 
@@ -207,8 +215,11 @@ I checked for outliers with Tukey’s Fences and visualized that in a time serie
 There are 84 outliers according to Tukey’s Fences. Since energy prices are so volatile, I decided  not to discard the outliers in the series.
 
 For both models (ARIMA and STL-ARIMA) I increased the AR component by 1, and applied a box-cox transformation to the time series data.
+
 I now had:
+
 ARIMA model 2: ARIMA(4,1,1)(0,0,2)[48]
+
 STL-ARIMA model 2: STL-ARIMA(6,1,1)
 
 For another two models I increased the AR component by 1, but did not apply a box-cox transformation to the time series data. I did this because I wanted to see if the box-cox transformation of the series actually had a significant improvement on the model. These models were ARIMA model 3 and STL-ARIMA model 3.
@@ -231,13 +242,14 @@ The MASE could not be calculated for my two of the models (ARIMA 2 and STL-ARIMA
 
 The original ARIMA model and ARIMA model 3 had identical results which means that increasing the AR component from AR(3) to AR(4) did not significantly improve the model. The original ARIMA model and ARIMA model 3 had the best results in regards to their RMSE, MAE, MAPE, MASE and ACF1. Thesse models seem to have strong accuracy and are realiably forecasting final energy prices for 2018.
 
-The 2nd ARIMA model and the second STL-ARIMA model had the worst performance with extremely high RMSE and MAE. The models had the highest ACF1.
-Slightly higher MAE, RMSE, and MASE than ARIMA, but solid MAPE and relatively low ACF1
+The 2nd ARIMA model and the second STL-ARIMA model had the worst performance with extremely high RMSE and MAE. These models had the highest ACF1.
 
 The model that performed best was my original ARIMA model.
 
 The prior adjustments to the original ARIMA and STL-ARIMA models did not improve the ARIMA model's performance but it did improve the STL-ARIMA model's performance.
+
 The box-cox transformation of the series made the performance of the models much worse.
+
 The best model was ARIMA(3,1,1)(0,0,2)[48] and the worst models were STL-ARIMA 2 and ARIMA 2.
 
 ![Alt](Images/20.png)
