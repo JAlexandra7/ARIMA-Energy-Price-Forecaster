@@ -242,7 +242,7 @@ The best model was ARIMA(3,1,1)(0,0,2)[48] and the worst models were STL-ARIMA 2
 
 ![Alt](Images/20.png)
 
-This plot shows my ARIMA model forecast for the final half hourly electricity prices for the year 2018 compared to the actual values for that year.
+This plot shows the ARIMA(311) model forecast for the final half hourly electricity prices for the year 2018 compared to the actual values for that year.
 
 There are large fluctuations in the actual electricity prices, particularly in July and November.
 
@@ -250,7 +250,7 @@ The forecast as shown by the blue dashed lines appears to follow the overall tre
 
 However it does model the initial five months January to May quite well.
 
-Due to the models issues with volatility if I were to continue forecasting the 2018 energy price data with another model I would consider a GARCH model as it is good for modelling volatility clustering.
+The ARIMA model has significant issues modelling the volatility of the energy price data.
 
 # Conclusion
 The best model was the ARIMA model: ARIMA(3,1,1)(0,0,2)[48].
