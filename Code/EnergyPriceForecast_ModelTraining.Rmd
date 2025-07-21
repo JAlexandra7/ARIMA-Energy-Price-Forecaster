@@ -25,6 +25,7 @@ Note that this project is only using one point of connection ABY0111 for simplic
 
 # Libraries
 ```{r, warning=FALSE}
+suppressPackageStartupMessages({
 library(dplyr)
 library(tidyr)
 library(fGarch)
@@ -43,7 +44,7 @@ library(FinTS)
 library(xts)
 library(rugarch)
 library(tibble)
-library(forecast)
+library(forecast)})
 ```
 
 Ensuring reproducibility of results:
@@ -170,7 +171,8 @@ If there hadn't been (eg due to leap years), I would have dropped the extra day 
 ```{r}
 ggplot(Training_set, aes(x = DollarsPerMegawattHour)) + 
   geom_histogram(binwidth = 50, color = 'black', fill = 'steelblue3') + 
-  geom_vline(aes(xintercept = mean(DollarsPerMegawattHour)), color = "red", linetype = "dashed", linewidth = 0.7) +
+  geom_vline(aes(xintercept = mean(DollarsPerMegawattHour)), color = "red", 
+             linetype = "dashed", linewidth = 0.7) +
   ggtitle("Histogram of Dollars Per MegawattHour") +
   theme(plot.title = element_text(hjust = 0.5))
 
@@ -198,7 +200,8 @@ ggplot(Training_set, aes(x = TradingDate, y = DollarsPerMegawattHour)) +
   geom_line() +
   scale_x_date(date_breaks = "1 month", date_labels = "%B", guide = guide_axis(n.dodge = 2)) +
   stat_peaks(geom = "point", span = 3225, color = "red", size = 2) +
-  stat_peaks(geom = "label", span = 3225, color = "red", angle = 0, hjust = -0.1, x.label.fmt = "%Y-%m-%d") +
+  stat_peaks(geom = "label", span = 3225, color = "red", angle = 0, 
+             hjust = -0.1, x.label.fmt = "%Y-%m-%d") +
   stat_peaks(geom = "rug", span = 3225, color = "darkred", sides = "b", size = 1.25) +
   ggtitle("Dollars Per Megawatt Hour over time") +
   theme(plot.title = element_text(hjust = 0.5))
@@ -321,7 +324,8 @@ The ADF, KPSS and Phillips–Perron tests all concluded that the first order dif
 ## ARIMA
 I'm using auto.arima with d = 1 (first order differencing) to find a suitable ARIMA model that I can manually adjust later based on its residuals.
 ```{r}
-ARIMA_model1 <- auto.arima(time_series_data, stepwise = FALSE, approximation = TRUE, d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = FALSE)
+ARIMA_model1 <- auto.arima(time_series_data, stepwise = FALSE, approximation = TRUE, 
+                           d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = FALSE)
 ```
 
 ```{r}
@@ -335,7 +339,8 @@ I have an autoregressive component of order 3, first order differencing applied 
 ## SARIMA
 I'm using auto.arima with d = 1 (first order differencing) to find a suitable SARIMA model that I can manually adjust later based on its residuals.
 ```{r}
-SARIMA_model1 <- auto.arima(time_series_data, stepwise = FALSE, approximation = TRUE, d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
+SARIMA_model1 <- auto.arima(time_series_data, stepwise = FALSE, approximation = TRUE, 
+                            d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
 ```
 
 ```{r}
@@ -425,7 +430,8 @@ Generation_Overall_Output <- Generation[, -c(56, 57)] %>%
   # Treats each unique combination of trading date and period as its own group
   summarise(
     Energy_output = sum(Energy_output, na.rm = TRUE),
-  # calculates the total energy output for (that trading date and period) each group by summing the energy output values across all sites
+  # calculates the total energy output for (that trading date and period) 
+  # each group by summing the energy output values across all sites
     .groups = "drop"
   )
 
@@ -472,7 +478,8 @@ Feature engineering:
 Energy_generation <- Generation_Overall_Output$Energy_output / 1e6
 
 # Season:
-# I'm using meteorological season start dates (which are the same every year) for simplicity and consistency
+# I'm using meteorological season start dates (which are the same every year)
+# for simplicity and consistency
 Season <- data.frame(Date = Training_set$TradingDate)
 Season$Season <- rep("", nrow(Training_set))
 Season$Season[
@@ -545,7 +552,8 @@ The response variable has a weak negative correlation of -0.05 with Season Summe
 
 Fitting model:
 ```{r}
-ARIMAX_model1 <- auto.arima(time_series_data, xreg = xreg, stepwise = TRUE, approximation = TRUE, d = 1, max.p = 2, max.q = 2, max.P = 1, max.Q = 1, allowdrift = TRUE)
+ARIMAX_model1 <- auto.arima(time_series_data, xreg = xreg, stepwise = TRUE, approximation = TRUE, 
+                            d = 1, max.p = 2, max.q = 2, max.P = 1, max.Q = 1, allowdrift = TRUE)
 ```
 
 ```{r}
@@ -590,8 +598,7 @@ fit_sstd  <- fit_ARIMA_GARCH("sstd", 1, 1, 1, 1)
 ```
 
 ```{r}
-models <- list(norm = fit_norm, std = fit_std, ged = fit_ged, snorm = fit_snorm, sstd = fit_sstd
-)
+models <- list(norm = fit_norm, std = fit_std, ged = fit_ged, snorm = fit_snorm, sstd = fit_sstd)
 
 info_table <- sapply(models, infocriteria)
 
@@ -617,7 +624,8 @@ curve(dnorm(x, mean = 0, sd = sd(residuals(fit_norm))), add = TRUE, col = "red")
 
 x <- residuals(fit_snorm)
 plot(density(residuals(fit_snorm)), main = "Residuals vs SNORM")
-curve(dsnorm(x, mean = 0, sd = sd(residuals(fit_snorm)), xi = coef(fit_snorm)["skew"]), add = TRUE, col = "red")
+curve(dsnorm(x, mean = 0, sd = sd(residuals(fit_snorm)), 
+             xi = coef(fit_snorm)["skew"]), add = TRUE, col = "red")
 
 ```
 For both plots, the red line (representing the theoretical distribution) doesn't closely follow the black line (representing the actual distribution of the model's residuals).
@@ -633,11 +641,13 @@ par(mfrow = c(1, 2))
 
 x <- residuals(fit_ged)
 plot(density(residuals(fit_ged)), main = "Residuals vs GED")
-curve(dged(x, mean = 0, sd = sd(residuals(fit_ged)), nu = coef(fit_ged)["shape"]), add = TRUE, col = "red")
+curve(dged(x, mean = 0, sd = sd(residuals(fit_ged)), 
+           nu = coef(fit_ged)["shape"]), add = TRUE, col = "red")
 
 x <- residuals(fit_std)
 plot(density(residuals(fit_std)), main = "Residuals vs STD")
-curve(dstd(x, mean = 0, sd = sd(residuals(fit_std)), nu = coef(fit_std)["shape"]), add = TRUE, col = "red")
+curve(dstd(x, mean = 0, sd = sd(residuals(fit_std)), 
+           nu = coef(fit_std)["shape"]), add = TRUE, col = "red")
 
 ```
 For both plots, the theoretical distribution overlaps the actual distribution of the residuals almost perfectly, expect for the peak.
@@ -651,7 +661,8 @@ For both plots, the peak of the actual residuals (shown by black line) is much h
 ```{r}
 x <- residuals(fit_sstd)
 plot(density(residuals(fit_sstd)), main = "Residuals vs SSTD")
-curve(dsstd(x, mean = 0, sd = sd(residuals(fit_sstd)), nu = coef(fit_sstd)["shape"]), add = TRUE, col = "red")
+curve(dsstd(x, mean = 0, sd = sd(residuals(fit_sstd)), 
+            nu = coef(fit_sstd)["shape"]), add = TRUE, col = "red")
 
 ```
 The red line (representing the theoretical distribution) doesn't closely follow the black line (representing the actual distribution of the model's residuals). The peak of the actual residuals (shown by black line) is much higher than the theoretical distribution's peak (shown by red line).
@@ -680,7 +691,8 @@ dged_log <- function(x, mean, sd, nu) {
 }
 
 plot(density(log(abs(residuals(fit_ged)))), main = "Log Density of Residuals vs Theoretical GED")
-curve(dged_log(x, mean = 0, sd = sd(residuals(fit_ged)), nu = coef(fit_ged)["shape"]), add = TRUE, col = "red")
+curve(dged_log(x, mean = 0, sd = sd(residuals(fit_ged)), 
+               nu = coef(fit_ged)["shape"]), add = TRUE, col = "red")
 ```
 
 This plot compares the log density of residuals (black curve) against the log of the theoretical GED distribution (red curve).
@@ -944,7 +956,8 @@ Generation_Overall_Output2 <- Generation2[, -c(56, 57)] %>%
   # Treats each unique combination of trading date and period as its own group
   summarise(
     Energy_output = sum(Energy_output, na.rm = TRUE),
-  # calculates the total energy output for (that trading date and period) each group by summing the energy output values across all sites
+  # calculates the total energy output for (that trading date and period) 
+  # each group by summing the energy output values across all sites
     .groups = "drop"
   )
 
@@ -983,7 +996,8 @@ Generation_Overall_Output2[c(13103, 13104), ]
 Energy_generation <- Generation_Overall_Output2$Energy_output / 1e6
 
 # Season:
-# I'm using meteorological season start dates (which are the same every year) for simplicity and consistency
+# I'm using meteorological season start dates (which are the same every year) 
+# for simplicity and consistency
 Season2 <- data.frame(Date = val_set$TradingDate)
 Season2$Season <- rep("", nrow(val_set))
 Season2$Season[
@@ -1047,7 +1061,8 @@ Model for forecasting energy generation is ARIMA(3,0,1)(1,1,0)[48] with drift.
 
 ```{r}
 # Season:
-# I'm using meteorological season start dates (which are the same every year) for simplicity and consistency
+# I'm using meteorological season start dates (which are the same every year) 
+# for simplicity and consistency
 Season2 <- data.frame(Date = val_set$TradingDate)
 Season2$Season <- rep("", nrow(val_set))
 Season2$Season[
@@ -1213,10 +1228,13 @@ df_forecast <- data.frame(
 
 ggplot() +
   geom_line(data = df_actual, aes(x = Date, y = Value, color = "Actual"), size = 0.55) +
-  geom_line(data = df_forecast, aes(x = Date, y = Mean, color = "Forecast"), size = 1, alpha = 0.8, linetype = "dashed") +
-  geom_ribbon(data = df_forecast, aes(x = Date, ymin = Lower, ymax = Upper), fill = "lightblue", alpha = 0.3) +
+  geom_line(data = df_forecast, aes(x = Date, y = Mean, color = "Forecast"), 
+            size = 1, alpha = 0.8, linetype = "dashed") +
+  geom_ribbon(data = df_forecast, aes(x = Date, ymin = Lower, ymax = Upper), 
+              fill = "lightblue", alpha = 0.3) +
   scale_color_manual(values = c("Actual" = "firebrick1", "Forecast" = "steelblue3")) +
-  scale_x_datetime(date_breaks = "1 month",  date_labels = "%B",  expand = c(0, 0), guide = guide_axis(n.dodge = 2)) +
+  scale_x_datetime(date_breaks = "1 month",  date_labels = "%B",  expand = c(0, 0), 
+                   guide = guide_axis(n.dodge = 2)) +
   labs(title = paste(model_name, " Forecast vs Actual Prices for ", start_year, sep = ""),
        x = "Month", y = "Electricity Price", color = "Legend") +
   theme_minimal() +
