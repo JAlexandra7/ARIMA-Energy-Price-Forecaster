@@ -1,6 +1,6 @@
 ---
 title: "Energy Price Forecasting"
-author: "Juliet Alexandra"
+author: "JAlexandra"
 date: "2025-07-11"
 output: pdf_document
 ---
@@ -40,6 +40,7 @@ library(lubridate)
 library(purrr)
 library(caret)
 library(FinTS)
+library(xts)
 library(rugarch)
 library(tibble)
 library(forecast)
@@ -151,7 +152,6 @@ filter(Training_set,
        TradingDate == as.Date("2017-09-24"),
        TradingPeriod %in% 46:49)
 ```
-
 
 ```{r}
 sapply(Training_set, anyNA)
@@ -697,45 +697,48 @@ The extreme kurtosis in the residuals suggests that parameter tuning is necessar
 
 ### ARIMA-Garch grid search
 #### ARIMA-GARCH
-
-Defining parameter grid for ARIMA-GARCH:
 ```{r}
-grid <- expand.grid(
-  garchorder_1 = 1:2,
-  garchorder_2 = 1:2,
-  armaOrder1   = 0:2,
-  armaOrder2   = 0:2
+fit_ARIMA_GARCH_model <- function(garchorder_1, garchorder_2, armaOrder1, armaOrder2, spec_model){
+spec <- ugarchspec(
+  variance.model = list(model = spec_model, garchOrder = c(garchorder_1, garchorder_2)),
+  mean.model     = list(armaOrder = c(armaOrder1, armaOrder2)),
+  distribution.model = "ged"
 )
+ugarchfit(spec = spec, data = first_order_diff, solver = "hybrid")
+}
+
 ```
 
-Grid search for best model:
+Grid search function for best model:
 ```{r}
+Grid_search <- function(grid, daily_returns = "default", realized_vol_xts = "default") {
 results <- list()
 
 # Looping through grid of parameters
-# Note that the final parameter set (g1 = 2, g2 = 2, p = 2, q = 2) was excluded from the grid search due to the model's excessive complexity, which prevented the optimizer from inverting its Hessian matrix
-for (i in 1:( nrow(grid) - 1 ) ) {
+for (i in 1:nrow(grid)) {
   g1 <- grid$garchorder_1[i]
   g2 <- grid$garchorder_2[i]
   p  <- grid$armaOrder1[i]
   q  <- grid$armaOrder2[i]
+  spec_model <- as.character(grid$spec_model_list[i])
+  
 
 # Labeling each model tested and printing the label to keep track
-  model_name <- paste0("ARMA(", p, ",", q, ") GARCH(", g1, ",", g2, ")")
+  model_name <- paste0("ARMA(", p, ",", q, ") GARCH(", g1, ",", g2, ")", " ", spec_model)
   cat("Fitting:", model_name, "\n")
   
 # Fits the model using custom function fit_ARIMA_GARCH
 # Captures errors and warnings to avoid crashing the loop
 # Returns NULL if fitting the model fails
   fit <- tryCatch(
-    fit_ARIMA_GARCH("ged", g1, g2, p, q),
+    fit_ARIMA_GARCH_model(g1, g2, p, q, spec_model),
     error = function(e) {
       cat("Error:", e$message, "\n")
-      return(paste("Error: ", model_name))
+      return(NULL)
     },
     warning = function(w) {
       cat("Warning:", w$message, "\n")
-      return(paste("Warning: ", model_name))
+      return(NULL)
     }
   )
   
@@ -748,44 +751,71 @@ for (i in 1:( nrow(grid) - 1 ) ) {
     results[[model_name]] <- rep(NA, 4)
   }
 }
+return(results)
+}
 ```
-Note that the final parameter set (g1 = 2, g2 = 2, p = 2, q = 2) was excluded from the grid search due to the model's excessive complexity, which prevented the optimizer from inverting its Hessian matrix.
+
+For each of the following grid search's, I've set the maximum order of the autoregressive component to be 3, this is because the prior ARIMA and SARIMA models found using auto.arima had autoregressive components of order 3.
 
 ```{r}
-tbl <- imap_dfr(results, function(ic, model_name) {
-  tibble(
-    Model = model_name,
-    Akaike = ic["Akaike", ],
-    Bayes = ic["Bayes", ],
-    Shibata = ic["Shibata", ],
-    Hannan_Quinn = ic["Hannan-Quinn", ]
-  )
-})
-sorted_tbl <- tbl %>% arrange(Akaike)
-print(sorted_tbl)
+# Defining parameter grid for ARIMA-GARCH:
+grid <- expand.grid( garchorder_1 = 1:2,  garchorder_2 = 1:2,
+                     armaOrder1   = 0:3,  armaOrder2   = 0:2, spec_model_list = "sGARCH")
+results <- Grid_search(grid)
 ```
 
-The best ARIMA-GARCH model is ARMA(1,0) GARCH(1,2). It has the lowest AIC and the lowest Shibata. It has the second lowest Hannan-Quinn. It also has the fourth lowest BIC.
+```{r}
+grid_fGARCH <- expand.grid(garchorder_1 = 1,    garchorder_2 = 1,
+                           armaOrder1   = 0:3,  armaOrder2   = 0:2, spec_model_list = "fiGARCH")
+results_f <- Grid_search(grid_fGARCH)
+```
 
-I will be moving forward with the ARMA(1,0) GARCH(1,2) model for forecasting.
+```{r}
+grid_iGARCH <- expand.grid(garchorder_1 = 1:2,    garchorder_2 = 1:2,
+                           armaOrder1   = 0:3,  armaOrder2   = 0:2, spec_model_list = "iGARCH")
+results_i <- Grid_search(grid_iGARCH)
+```
 
+```{r}
+# Combining the lists into one big list
+all_results <- c(results, results_f, results_i)
+
+# Assigning names to each vector
+for(i in seq_along(all_results)) {
+  names(all_results[[i]]) <- metrics
+}
+
+# Turning the list into a tibble with two columns: Model and ICs (the numeric vector)
+df_all <- enframe(all_results, name = "Model", value = "ICs") %>%
+  # Unpacking the named vector in each row into its own columns
+  unnest_wider(ICs)
+
+df_all %>% arrange(Akaike)
+```
+
+Out of the 108 models considered the ARMA(1,0) fiGARCH(1,1) model had the lowest AIC, BIC, Shibata and Hannan-Quinn.
+
+Of the 108 models that I attempted to fit in the grid search, 1 of those models (the ARMA(2,2) GARCH(2,2) sGARCH model), failed to invert its hessian matrix.
+
+I will be moving forward with the ARMA(1,0) fiGARCH(1,1) model for forecasting due to it having the best performance in terms of AIC, BIC, Shibata and Hannan-Quinn.
+
+#### Fitting ARIMAX-fiGARCH
 ```{r}
 spec <- ugarchspec(
-  variance.model = list(model = "sGARCH", garchOrder = c(1, 2)),
-  mean.model = list(armaOrder = c(1, 0), include.mean = TRUE),
-  distribution.model = "ged"
-)
-GARCH_model <- ugarchfit(spec = spec, data = first_order_diff, solver = "hybrid")
+  variance.model = list(model = "fiGARCH", garchOrder = c(1, 1)),
+  mean.model     = list(armaOrder = c(1, 0)),
+  distribution.model = "ged")
 
 ```
 
 ```{r}
+GARCH_model <- ugarchfit(spec = spec, data = first_order_diff, solver = "hybrid")
 show(GARCH_model)
 ```
 
 Since I applied first order differencing to the time series prior to fitting the model, then the model is:
 
-ARIMA(1, 1, 0) - GARCH(1, 2).
+ARMA(1,1,0) fiGARCH(1,1) model
 
 Where the time series has been differenced one (d = 1) and includes an autoregressive component of order 1 in the mean.
 
@@ -997,25 +1027,23 @@ forecast_ARIMAX <- ts(forecast_raw_ARIMAX_1, start = c(2018, 1), frequency = 48)
 ### ARIMAX; forecasted Energy_generation
 Forecasting with estimated (forecasted) Energy_generation values:
 
-Model for forecasting Energy_generation values:
+Model for forecasting Energy_generation values, note that a Box-Cox transformation has been applied to ensure all outputs are non-negative. This is done because a power plant cannot generate less than zero energy:
 ```{r}
 Energy_generation_2017 <- Generation_Overall_Output$Energy_output / 1e6
 ts_Energy <- ts(Energy_generation_2017, start = c(2017, 1), frequency = 48)
 
-ARIMA_model_generation <- auto.arima(ts_Energy, stepwise = FALSE, approximation = TRUE, d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
+lambda <- BoxCox.lambda(ts_Energy)
+Energy_generation_bc <- BoxCox(ts_Energy, lambda)
+fit_Energy <- auto.arima(Energy_generation_bc)
+fcast_bc <- forecast(fit_Energy, h = 17520)
+Energy_generation <- InvBoxCox(fcast_bc$mean, lambda)
+
 ```
 
 ```{r}
-summary(ARIMA_model_generation)
+summary(fit_Energy)
 ```
-Model for forecasting energy generation is ARIMA(2,1,1)(2,1,0)[48].
-
-```{r}
-# Energy generation output
-Energy_generation <- forecast(ARIMA_model_generation, h = 17520)$mean
-
-typeof(Energy_generation)
-```
+Model for forecasting energy generation is ARIMA(3,0,1)(1,1,0)[48] with drift.
 
 ```{r}
 # Season:
@@ -1050,7 +1078,7 @@ Is_Weekend <- ifelse(weekdays(val_set$TradingDate) %in% c("Saturday", "Sunday"),
 
 xreg_future2 <- cbind(Energy_generation, Season_dummies, Is_Weekend)
 
-# Correcting issue with colnames:
+# Correcting incorrect column names:
 colnames(xreg_future2)[2] <- "SeasonSpring"
 colnames(xreg_future2)[3] <- "SeasonSummer"
 colnames(xreg_future2)[4] <- "SeasonWinter"
@@ -1066,11 +1094,10 @@ forecast_raw_ARIMAX_2 <- forecast(ARIMAX_model1, h = 17520, xreg = xreg_future2)
 forecast_ARIMAX2 <- ts(forecast_raw_ARIMAX_2, start = c(2018, 1), frequency = 48)
 ```
 
-## ARIMA-GARCH model
+## ARIMA-GARCH
 Forecasting ARIMA-GARCH model:
 ```{r}
 forecast_raw_Garch <- ugarchforecast(GARCH_model, n.ahead = 17520)
-mean_fc_vector <- as.numeric(fitted(forecast_raw_Garch)[ , 1])
 ```
 
 I first order differenced the time series before fitting the model so I'm converting back:
@@ -1103,11 +1130,11 @@ acc_list <- list(
   SARIMA    = SARIMA_acc,
   STL_ARIMA = STL_ARIMA_acc,
   ARIMAX    = ARIMAX_acc,
-  ARIMAX2   = ARIMAX2_acc,
-  ARIMA_GARCH = GARCH_acc)
+  ARIMAX_model2 = ARIMAX2_acc,
+  ARIMA_fiGARCH = GARCH_acc)
 ```
 
-Manually calculating MASE for ARIMA_GARCH:
+Manually calculating MASE for ARIMA-fiGARCH:
 ```{r}
 # Naive forecast errors from training set
 naive_errors <- diff(time_series_data)  # Assuming naive one-step forecasts
@@ -1126,14 +1153,16 @@ mase_garch <- mae_garch / mae_naive
 acc_df <- map_df(acc_list, ~ as.data.frame(.x)["Test set", ], .id = "Model")
 acc_df[6, 7] <- mase_garch
 
-acc_df %>% arrange(MASE)
+acc_df %>% arrange(MASE) %>% mutate(across(where(is.numeric), ~ round(.x, digits = 2)))
 ```
 
 The ARIMA model has the best ME, RMSE, MAE, MPE, MAPE, MASE and Theil's U. It had the second best ACF1. ARIMA was the most accurate forecasting model.
 
 The worst model was ARIMA-GARCH with the worst performance on every metric.
 
-SARIMA and STL-ARIMA had similar performance with SARIMA having a slightly lower value for most metrics. STL-ARIMA had the lower value for ME and MPE.
+SARIMA and STL-ARIMA had similar performance with SARIMA having a slightly lower value for most metrics. STL-ARIMA had the lower values for ME and MPE though.
+
+The ARIMAX model with the (ARIMA(3,0,1)(1,1,0)[48] with drift) forecasted energy generation variable in its xreg (labeled ARIMAX_model2), performed similarly to ARIMAX with the actual values for energy generation in its xreg. There is an average difference of 0.05 between the performances. This tells me that the use of an estimated Energy_generation variable does not harm model performance significantly.
 
 All models have ACF1 values of 0.65 or larger indicating a strong positive autocorrelation at lag 1, this suggests that every model fitted has not yet captured all autocorrelation in the time series. Ideally, residuals should resemble white noise (where ACF1 approximately equals 0). During model refinement I will try adding more AR and MA terms to try and capture this autocorrelation. I will also reassess the differencing order to see if the series needs further transformation.
 
@@ -1197,6 +1226,30 @@ ggplot() +
 
 ```{r}
 plot_actual_forecast("2018-01-01 00:00:00", val_set, 2018, forecast_ARIMA, "ARIMA(3, 1, 1)")
+```
+This plot shows the ARIMA(311) model forecast for the final half hourly electricity prices for the year 2018 compared to the actual values for that year.
+
+There are large fluctuations in the actual electricity prices, particularly in July and November.
+
+The forecast as shown by the blue dashed lines appears to follow the overall trend of electricity prices. Its 95% confidence interval (the light blue ribbon) covers the majority of the electricity prices for 2018 but misses many large spikes between June and December which means the model was underestimating the real volatility.
+
+However it does model the initial five months January to May quite well.
+
+The ARIMA model has significant issues modelling the volatility of the energy price data.
+
+# Saving models for future use
+
+```{r}
+saveRDS(ARIMA_model1, file = "Models/arima_model.rds")
+saveRDS(SARIMA_model1, file = "Models/sarima_model.rds")
+saveRDS(STL_ARIMA_model1, file = "Models/stl_arima_model.rds")
+saveRDS(ARIMAX_model1, file = "Models/arimax_model.rds")
+saveRDS(GARCH_model, file = "Models/garch_model.rds")
+
+# Saving ARIMAX with xreg (done because future xreg contains forecasted variable)
+saveRDS(list(model = ARIMAX_model1, future_xreg = xreg_future2), "Models/arima_with_xreg.rds")
+saveRDS(fit_Energy, file = "Models/Energy_generation_model.rds")
+
 ```
 
 # References and Citations
