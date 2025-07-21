@@ -107,37 +107,34 @@ I performed an Augmented Dickey-Fuller test and Phillips–Perron test both of w
 
 The KPSS test had a p-value larger of 0.5, as a result I concluded that the differenced series was trend stationary.
 
-# Accuracy metrics
+# Fitting the Models
+I used auto.arima with first order differencing to find suitable ARIMA and SARIMA models that I could manually adjust later based on each models residuals. Those models were ARIMA(3,1,1) and ARIMA(3,1,1)(0,0,1)[48] respectively.
 
-I fitted five models:
+For STL-ARIMA(5,1,1) I enabled robust fitting for the model (robust = TRUE) to make it more resistant to outliers. The weighting function reduced the influence of outliers, causing most outliers to be captured in the remainder component. As a result, the trend and seasonal patterns are be preserved and more accurately reflected the underlying structure of the time series.
 
-ARIMA(3,1,1)
+For the ARIMAX model I feature engineered three variables. Energy generation (gives the total energy generated for each trading period and date), Season (which gives the season for each observation) which was turned into three dummy variables (note that the dummy variable for autumn was dropped to avoid the dummy variable trap), and Is_Weeked (Which states whether any observation was on a weekday or a weekend).
 
-SARIMA: ARIMA(3,1,1)(0,0,1)[48]
+To identify the best ARIMA-GARCH model, I first evaluated which distribution (out of norm, ged, std, snorm, sstd) best fit the data by looking at kernel density plots. Then I made and used a grid search function that fit 108 different models combinations, varying the AR, MA, ARCH (p), and GARCH (q) orders across four volatility frameworks: sGARCH, fGARCH, and iGARCH. The best model was the ARMA(1,0) fiGARCH(1,1) model with the lowest AIC, BIC, Shibata and Hannan-Quinn.
 
-STL-ARIMA(5,1,1)
+All of the models were trained on a time series containing 12 months of half hourly final energy price data from 2017-01-01 to 2017-12-31.
 
-An ARIMAX model where the xreg had regressors Season_dummies (Winter, Summer and spring), Is_Weekend and Energy_Generation. Note that one of the season dummies was dropped to avoid the dummy variable trap.
+# Accuracy Metrics for Validation set
 
-The xreg variable Energy Generation was forecasted using an ARIMA(3,0,1)(1,1,0)[48] with drift model rather than using the actual energy generation values. This was done because the actual values of energy generation won't be known ahead of time for forecasting, so I will need to estimate the values of this variable for testing and any real world usage. The model is ARIMA(2,1,2)(0,0,1)[48] errors.
+The future xreg variable Energy Generation was forecasted using an ARIMA(3,0,1)(1,1,0)[48] with drift model rather than using the actual energy generation values. This was done because the actual values of energy generation won't be known ahead of time for forecasting, so I will need to estimate the values of this variable for testing and any real world usage. The model is ARIMA(2,1,2)(0,0,1)[48] errors.
 
 I wanted to understand the models sensitivity to inaccurate energy generation values, to do this I made an additional ARIMAX model where the only difference was that Energy_Generation contained its real values.
 I then compared it to my original ARIMAX model.
 
-An ARIMA-GARCH model which was selected using AIC and BIC. I made and used a grid search to find the best model.
-
-All of the models were trained on a time series containing 12 months of half hourly final energy price data from 2017-01-01 to 2017-12-31.
-
 I obtained the following accuracy metrics by forecasting the energy prices for 2018 and comparing them against the actual 2018 values for each model:
 
-| Model     | ME   | RMSE   | MAE   |  MAPE |  MAPE | MASE  | ACF1   | Theil's U |
-|-----------|------|--------|-------|-------|-------|-------|--------|-----------|
-ARIMA       |4.25  | 18.39  |	13.12	| 0.61	| 15.29	| 0.67	| 0.65   | 1.38      |
-SARIMA      |6.67	 | 19.18  |	13.62	| 3.44	| 15.51	| 0.70	| 0.65   | 1.38      |
-STL_ARIMA   |4.65  |	19.77	| 14.90	| 0.82	| 17.62	| 0.76	| 0.69	 | 1.53      |
-ARIMAX_2    |7.96  |	20.78	| 15.85	| 4.93	| 18.09	| 0.81	| 0.68   | 1.50      |
-ARIMAX      |7.80  |	20.67	| 15.88	| 4.79	| 18.08	| 0.81	| 0.67   | 1.47      |
-ARIMA-GARCH |27.11 | 104.21	| 51.41	| -1844.30 | 1878.63 | 6.34 | 0.91 | 10.92   |
+| Model       | ME   | RMSE   | MAE   |  MAPE |  MAPE | MASE  | ACF1   | Theil's U |
+|-------------|------|--------|-------|-------|-------|-------|--------|-----------|
+ARIMA         |4.25  | 18.39  |	13.12	| 0.61	| 15.29	| 0.67	| 0.65   | 1.38      |
+SARIMA        |6.67	 | 19.18  |	13.62	| 3.44	| 15.51	| 0.70	| 0.65   | 1.38      |
+STL_ARIMA     |4.65  |	19.77	| 14.90	| 0.82	| 17.62	| 0.76	| 0.69	 | 1.53      |
+ARIMAX_2      |7.96  |	20.78	| 15.85	| 4.93	| 18.09	| 0.81	| 0.68   | 1.50      |
+ARIMAX        |7.80  |	20.67	| 15.88	| 4.79	| 18.08	| 0.81	| 0.67   | 1.47      |
+ARIMA-fiGARCH |-21.44| 98.91	| 69.77	| -3749.05 | 3765.09 | 8.61 | 0.90 | 22.16   |
 
 The ARIMA model has the best ME, RMSE, MAE, MPE, MAPE, MASE and Theil's U. It had the second best ACF1. ARIMA was the most accurate forecasting model.
 
@@ -154,8 +151,7 @@ The MASE for all models, except for ARIMA-GARCH, is less than 1 which means they
 The best model so far was the ARIMA(3,1,1) model.
 
 # Structural checks and Statistical diagnostics
-## Autocorrelation check with Ljung Box test, acf and pacf plots:
-### ARIMA model
+## ARIMA model
 The p-value from the Ljung Box test was extremely small as a result I rejected the null hypothesis that there was no autocorrelation in the residuals and concluded that there was autocorrelation in the residuals. This means that the ARIMA model hadn’t fully captured the time-dependent structure in the series.
 
 For Anderson-Darling normality test the p-value was very small, so I rejected the null hypothesis that the residuals are normally distributed and concluded that the residuals were non-normal.
@@ -176,7 +172,7 @@ There was no strong pattern of lingering autocorrelation. The residuals behaved 
 Most lags fell within the blue dashed confidence bands, meaning their partial autocorrelations weren’t statistically significant.
 There are a few spikes outside of the confidence bounds, particularly at lag 1 suggesting short-term autocorrelation. This implied that the AR term (p) was slightly under-specified. I tried increasing the AR component to try and capture the remaining autocorrelation.
 
-### STL-ARIMA model
+## STL-ARIMA model
 The p-value from the Ljung Box test was extremely small as a result I rejected the null hypothesis that there was no autocorrelation in the residuals and concluded that there was autocorrelation in the residuals. This means that the STL-ARIMA model hadn’t fully captured the time-dependent structure in the series.
 
 For Anderson-Darling normality test the p-value was very small, so I rejected the null hypothesis that the residuals were normally distributed and concluded that the residuals were non-normal.
@@ -224,7 +220,7 @@ STL-ARIMA model 2: STL-ARIMA(6,1,1)
 
 For another two models I increased the AR component by 1, but did not apply a box-cox transformation to the time series data. I did this because I wanted to see if the box-cox transformation of the series actually had a significant improvement on the model. These models were ARIMA model 3 and STL-ARIMA model 3.
 
-# Model assessment
+# Final Model assessment
 I forecast 48 trading periods for twelve months for my four models, ARIMA model 2, ARIMA model 3, STL-ARIMA model 2 and STL-ARIMA model 3.
 
 I made sure to apply an inverse box cox transformation on the forescasts of ARIMA model 2 and STL-ARIMA model 2 to obtain interpretable electricity price predictions since the ARIMA 2 and STL-ARIMA 2 models were trained on a box cox transformed time series.
