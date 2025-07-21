@@ -789,12 +789,13 @@ results_i <- Grid_search(grid_iGARCH)
 ```
 
 ```{r}
+metrics2 <- c("Akaike", "Bayes", "Shibata", "Hannan-Quinn")
 # Combining the lists into one big list
 all_results <- c(results, results_f, results_i)
 
 # Assigning names to each vector
 for(i in seq_along(all_results)) {
-  names(all_results[[i]]) <- metrics
+  names(all_results[[i]]) <- metrics2
 }
 
 # Turning the list into a tibble with two columns: Model and ICs (the numeric vector)
@@ -1113,6 +1114,7 @@ forecast_ARIMAX2 <- ts(forecast_raw_ARIMAX_2, start = c(2018, 1), frequency = 48
 Forecasting ARIMA-GARCH model:
 ```{r}
 forecast_raw_Garch <- ugarchforecast(GARCH_model, n.ahead = 17520)
+mean_fc_vector <- as.numeric(fitted(forecast_raw_Garch)[ , 1])
 ```
 
 I first order differenced the time series before fitting the model so I'm converting back:
@@ -1269,6 +1271,20 @@ saveRDS(list(model = ARIMAX_model1, future_xreg = xreg_future2), "Models/arima_w
 saveRDS(fit_Energy, file = "Models/Energy_generation_model.rds")
 
 ```
+
+Saving Training set and time series as csv's:
+```{r}
+df <- data.frame(Value = as.numeric(time_series_data))
+
+write.csv(df, "Saved_Datasets/timeseries.csv", row.names = FALSE)
+write.csv(Training_set, "Saved_Datasets/Training_set.csv", row.names = FALSE)
+
+df_V <- data.frame(Value = as.numeric(Val_time_series))
+write.csv(df_V, "Saved_Datasets/Val_time_series.csv", row.names = FALSE)
+write.csv(val_set, "Saved_Datasets/Val_set.csv", row.names = FALSE)
+
+```
+
 
 # References and Citations
 
