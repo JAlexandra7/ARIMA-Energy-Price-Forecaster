@@ -151,104 +151,6 @@ The MASE for all models, except for ARIMA-GARCH, is less than 1 which means they
 
 The best model so far was the ARIMA(3,1,1) model.
 
-# Structural checks and Statistical diagnostics
-## ARIMA model
-The p-value from the Ljung Box test was extremely small as a result I rejected the null hypothesis that there was no autocorrelation in the residuals and concluded that there was autocorrelation in the residuals. This means that the ARIMA model hadn’t fully captured the time-dependent structure in the series.
-
-For Anderson-Darling normality test the p-value was very small, so I rejected the null hypothesis that the residuals are normally distributed and concluded that the residuals were non-normal.
-
-Checking for constant variance:
-![Alt](Images/8.png)
-
-As the fitted values increase, the residuals fan out, showing increasing variance.
-There’s a tight cluster around zero residuals for lower fitted values
-
-![Alt](Images/9.png)
-
-Most autocorrelation bars fall within the dashed blue confidence bands, suggesting they’re not statistically significant.
-There was no strong pattern of lingering autocorrelation. The residuals behaved like white noise.
-
-![Alt](Images/10.png)
-
-Most lags fell within the blue dashed confidence bands, meaning their partial autocorrelations weren’t statistically significant.
-There are a few spikes outside of the confidence bounds, particularly at lag 1 suggesting short-term autocorrelation. This implied that the AR term (p) was slightly under-specified. I tried increasing the AR component to try and capture the remaining autocorrelation.
-
-## STL-ARIMA model
-The p-value from the Ljung Box test was extremely small as a result I rejected the null hypothesis that there was no autocorrelation in the residuals and concluded that there was autocorrelation in the residuals. This means that the STL-ARIMA model hadn’t fully captured the time-dependent structure in the series.
-
-For Anderson-Darling normality test the p-value was very small, so I rejected the null hypothesis that the residuals were normally distributed and concluded that the residuals were non-normal.
-
-![Alt](Images/13.png)
-
-As the fitted values increase, the residuals fan out, showing increasing variance. There’s a tight cluster around zero residuals for lower fitted values.
-
-![Alt](Images/14.png)
-
-The models residuals were like white noise, most of the bars were within the confidence bounds
-
-![Alt](Images/15.png)
-
-There are significant spikes outside the confidence bands, this suggests that there are lags that aren’t captured by my current AR structure.
-I tried increasing the AR component to try and capture the remaining autocorrelation.
-
-# Model refinement
-I applied a box cox transformation to the time series to try and resolve the non-normality.
-
-![Alt](Images/16.png)
-
-There was a curved pattern in the data which indicated that the data was skewed or was not normally distributed
-
-![Alt](Images/17.png)
-
-The data was not centered around zero, so its not a standard normal distribution. The data also appeared to be right skewed. This plot indicated that the data was not normally distributed.
-
-For the Anderson-Darling normality test it had a small p-value which indicate that the data was still not normal even after a BoxCox transformation
-
-The data was not normally distributed, but the box-cox transformed time series was closer to a normal distribution than the untransformed time series, so I continued using it for further modelling.
-
-I checked for outliers with Tukey’s Fences and visualized that in a time series plot where each red dot was an outlier:
-![Alt](Images/19.png)
-
-There are 84 outliers according to Tukey’s Fences. Since energy prices are so volatile, I decided  not to discard the outliers in the series.
-
-For both models (ARIMA and STL-ARIMA) I increased the AR component by 1, and applied a box-cox transformation to the time series data.
-
-I now had:
-
-ARIMA model 2: ARIMA(4,1,1)(0,0,2)[48]
-
-STL-ARIMA model 2: STL-ARIMA(6,1,1)
-
-For another two models I increased the AR component by 1, but did not apply a box-cox transformation to the time series data. I did this because I wanted to see if the box-cox transformation of the series actually had a significant improvement on the model. These models were ARIMA model 3 and STL-ARIMA model 3.
-
-# Final Model assessment
-I forecast 48 trading periods for twelve months for my four models, ARIMA model 2, ARIMA model 3, STL-ARIMA model 2 and STL-ARIMA model 3.
-
-I made sure to apply an inverse box cox transformation on the forescasts of ARIMA model 2 and STL-ARIMA model 2 to obtain interpretable electricity price predictions since the ARIMA 2 and STL-ARIMA 2 models were trained on a box cox transformed time series.
-
-|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  |
-|-----------|------|--------|-------|----------|---------|-------|-------|
-ARIMA       |6.56	 | 19.17  |	13.71	| 3.29	   | 15.65	 | 0.70	 | 0.65  |
-ARIMA 2     |18.20 | 102.34	| 52.97	| -2091.39 | 2119.70 | NA	   | 0.91  |
-ARIMA 3     |6.56  | 19.17	| 13.71	| 3.29	   | 15.65	 | 0.70  |	0.65 |
-STL_ARIMA   |12.25 | 21.63	| 17.83	| 10.29	   | 19.71	 | 0.91	 | 0.66	 |
-STL_ARIMA 2 |18.69 | 101.89 | 52.76 |	-1999.73 | 2028.92 |	NA	 | 0.91	 |
-STL_ARIMA 3 |5.77	 | 19.96  |	15.61 |	2.50     | 18.36   |	0.80 |	0.69 |
-
-The MASE could not be calculated for my two of the models (ARIMA 2 and STL-ARIMA 2) presumably due to the box-cox transformation I applied to the time series for those models, so I will be focusing on the other available metrics.
-
-The original ARIMA model and ARIMA model 3 had identical results which means that increasing the AR component from AR(3) to AR(4) did not significantly improve the model. The original ARIMA model and ARIMA model 3 had the best results in regards to their RMSE, MAE, MAPE, MASE and ACF1. Thesse models seem to have strong accuracy and are realiably forecasting final energy prices for 2018.
-
-The 2nd ARIMA model and the second STL-ARIMA model had the worst performance with extremely high RMSE and MAE. These models had the highest ACF1.
-
-The model that performed best was my original ARIMA model.
-
-The prior adjustments to the original ARIMA and STL-ARIMA models did not improve the ARIMA model's performance but it did improve the STL-ARIMA model's performance.
-
-The box-cox transformation of the series made the performance of the models much worse.
-
-The best model was ARIMA(3,1,1)(0,0,2)[48] and the worst models were STL-ARIMA 2 and ARIMA 2.
-
 ![Alt](Images/20.png)
 
 This plot shows the ARIMA(311) model forecast for the final half hourly electricity prices for the year 2018 compared to the actual values for that year.
@@ -257,30 +159,126 @@ There are large fluctuations in the actual electricity prices, particularly in J
 
 The forecast as shown by the blue dashed lines appears to follow the overall trend of electricity prices. Its 95% confidence interval (the light blue ribbon) covers the majority of the electricity prices for 2018 but misses many large spikes between June and December which means the model was underestimating the real volatility.
 
-However it does model the initial five months January to May quite well.
+However it did model the initial five months January to May quite well. The ARIMA model had significant issues modelling the volatility of the energy price data.
 
-The ARIMA model has significant issues modelling the volatility of the energy price data.
+# Structural checks and Statistical diagnostics
+To test if there was autocorrelation left in the residuals I used an Ljung Box test. For every single model the p-value from that test was extremely small (far less than 0.05) as a result I rejected the null hypothesis and concluded that there was autocorrelation in the residuals. This means that every model I fit hadn’t fully captured the time dependent structure in the series.
+
+For Anderson-Darling normality test the p-value was very small, so I rejected the null hypothesis that the residuals are normally distributed and concluded that the residuals were non-normal.
+
+I used an Anderson-Darling normality test to check if the residuals were normally distributed. For all of the models I fit the residuals were non-normal.
+
+To check if the variance was constant for the residuals I used ARCH LM-test. For all of the models I fit there were ARCH effects, meaning that the residuals were heteroskedastic (non constant variance).
+
+Here is a fitted values vs residuals plot from the ARIMA model which supports my conclusion.
+![Alt](Images/8.png)
+As the fitted values increase, the residuals fan out, showing increasing variance.
+
+I used a one sample t-test to check that the mean of the residuals was approximately zero. The mean of the residuals for all models was approximately 0, which means that the models have unbiased forecasts where they aren't systematically over or under fitting.
+
+I checked each model's invertibility for their MA components. The roots of MA polynomials, for all models, were outside the unit circle.
+
+I looked at ACF and PACF plots for all of the models to determine whether I needed to increase the order of their AR or MA components to capture the remaining autocorrelation in the residuals.
+The ACF and PACF plots, for all models, showed spikes outside the confidence bounds, which suggests that each models AR and MA terms were underspecified.
+
+SARIMA ACF:
+![Alt](Images/22.png)
+
+SARIMA PACF:
+![Alt](Images/21.png)
+
+# Model refinement
+I applied a BoxCox transformation to the time series to fix the non-constant variance and the non-normality.
+
+I increased the AR and MA terms of the model to capture the remaining autocorrelation.
+
+I fitted seven ARIMA models, nine SARIMA models, eight STL-ARIMA models and four ARIMAX models.
+
+# Refined models performance on Validation set
+
+I made sure to apply an inverse Box-Cox transformation on the forescasts of all models fitted on a Box-Cox transformed time series to obtain interpretable electricity price predictions.
+
+## ARIMA
+|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  |
+|-----------|------|--------|-------|----------|---------|-------|-------|
+ARIMA(3,1,1)  |4.25|	18.39|	13.12|	0.61|	15.29|	0.67|	0.65|	1.38 | 1
+ARIMA(4,1,1)    |4.25|	18.39|	13.12|	0.61|	15.29|	0.67|	0.65|	1.38  | 6
+ARIMA(3,1,2)  |4.24|	18.39|	13.12|	0.60|	15.29|	0.67|	0.65|	1.38  | 7
+ARIMA(4,1,2)  |4.33|	18.41|	13.13|	0.70|	15.28|	0.67|	0.65|	1.37	 | 8
+ARIMA(3,1,1) bc |16.20|	101.89|	53.38|	-2136.53|	2163.73|	NA|	0.91|	12.57| 2
+ARIMA(4,1,1) bc   |16.12|	101.87|	53.40|	-2138.74|	2165.90|	NA|	0.91|	12.58| 3
+ARIMA(3,1,2) bc   |16.12|	101.87|	53.40|	-2138.52|	2165.69|	NA|	0.91|	12.58 | 4
+ARIMA(4,1,2) bc   |16.13|	101.87|	53.40|	-2138.27|	2165.44|	NA|	0.91|	12.58 | 5
+
+I have fitted the models labeled "bc" on the BoxCox transformed time series. The rest of the models were fitted on the original time series. The first model is the original model I fitted prior to model refinement.
+
+The original model was outperformed by ARIMA(411) and ARIMA(312).
+
+## SARIMA
+|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  |
+|-----------|------|--------|-------|----------|---------|-------|-------|
+ARIMA(3,1,1)(0,0,1)    |6.67	|19.18	|13.62	|3.44	|15.51	|0.70	|0.65|	1.38  | 1
+ARIMA(3,1,1)(0,0,2)    |82.00|	83.93|	82.00| 92.76|	92.76|	164.82|	0.65|	5.99 | 10
+ARIMA(3,1,2)(0,0,1)    |82.01|	83.94|	82.01| 92.77|	92.77|	164.84|	0.65|	5.99 | 8
+ARIMA(4,1,2)(0,0,1)    |82.01|	83.94|	82.01| 92.77|	92.77|	164.84|	0.65|	5.99 | 9
+ARIMA(4,1,1)(0,0,1)    |82.01|	83.94|	82.01| 92.77|	92.77|	164.85|	0.65|	5.99 | 7
+ARIMA(3,1,1)(0,0,1) bc |17.04|	102.02|	53.15| -2114.40	|2142.05|NA|	0.91|	12.44 | 2
+ARIMA(4,1,1)(0,0,1) bc |16.89|	102.00|	53.19| -2118.25	|2145.82|	NA|	0.91|	12.46 | 3
+ARIMA(3,1,2)(0,0,1) bc |16.95|	102.01|	53.17| -2116.61	|2144.21|	NA|	0.91|	12.45 | 4
+ARIMA(4,1,2)(0,0,1) bc |16.94|	102.01|	53.17| -2117.04	|2144.64|	NA|	0.91	|12.46 | 5
+ARIMA(3,1,1)(0,0,2) bc |17.29|	102.06|	53.08| -2107.70	|2135.49|	NA|	0.91|	12.40 | 6
+
+I have fitted the models labeled "bc" on the BoxCox transformed time series. The rest of the models were fitted on the original time series. The first model is the original model I fitted prior to model refinement.
+
+The original SARIMA model performed best across all accuracy metrics.
+
+## STL-ARIMA
+|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  | Theil's U |
+|-----------|------|--------|-------|----------|---------|-------|-------|-----------|
+STL-ARIMA(5,1,1)    |4.77	 |19.75	|14.85  |	0.96	|17.52	|0.76|	0.69	|1.52|
+STL-ARIMA(5,1,2)    |4.68  |19.76	|14.89	|0.86	|17.59|	0.76	|0.69|	1.52|
+STL-ARIMA(6,1,2)    |4.65	 |19.77 |	14.90	|0.82	|17.62|	0.76	|0.69	|1.53 |
+STL-ARIMA(6,1,1)    |4.64	 |19.78	|14.94	|0.81	|17.67	|0.77	|0.69	|1.53 |
+STL-ARIMA(5,1,1) bc |17.00 |101.43|	52.74 |	-2063.15	|2090.68|	NA|	0.91	|12.07 |
+STL-ARIMA(6,1,1) bc |16.82 |101.40|	52.79	|-2068.01	|2095.45|	NA|	0.91	|12.10 |
+STL-ARIMA(5,1,2) bc |17.06	|101.44	|52.73	|-2061.63|	2089.20|	NA	|0.91	|12.06 |
+STL-ARIMA(6,1,2) bc |16.84	|101.40	|52.79	|-2067.35	|2094.81	|NA|	0.91	|12.09 |
+
+I have fitted the models labeled "bc" on the BoxCox transformed time series. The rest of the models were fitted on the original time series. The first model is the original model I fitted prior to model refinement.
+
+The original model was outperformed by the STL-ARIMA(5,1,2) model (which had its MA term increased by one).
+
+## ARIMAX
+|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  | Theil's U |
+|-----------|------|--------|-------|----------|---------|-------|-------|-|
+ARIMAX(2,1,2)(0,0,1)    |7.96  | 20.78  |	15.85	| 4.93     |18.09	   | 0.81	 | 0.68 | 1.50  |
+ARIMAX(2,1,2)(0,0,1) bc |13.99 | 98.68	| 51.55	| -2260.97 | 2286.05 | NA	 |  0.90| 13.26  |
+ARIMAX(3,1,2)(0,0,1) bc |15.13  | 99.07	| 51.25	| -2213.46| 2239.04	 | NA | 0.90|	12.98 |
+ARIMAX(2,1,3)(0,0,1) bc |14.23 | 98.93	| 51.65	|-2237.04	   | 2262.31	 | NA	|  0.90| 13.11	 |
+ARIMAX(3,1,3)(0,0,1) bc |14.46 | 98.63 | 51.19 |	-2251.19 | 2276.35 |	NA	|  0.90| 13.21	 |
+
+I have fitted the models labeled "bc" on the BoxCox transformed time series. The rest of the models were fitted on the original time series. I have used the same xreg (contianing Season, Energy_generation and Is_weekend) for all the models. The first model is the original model I fitted prior to model refinement.
+
+The original model performed best on every metric.
+
+I can see that across all models performances, the models that were trained on BoxCox transformed time series performed the worst.
+
+# Final Model assessment on 2019 test data
+I forecast 48 trading periods for twelve months for my four models, ARIMA(3,1,2), SARIMA(3,1,1)(0,0,1), ARIMA(4,1,1), and STL-ARIMA(5,1,2).
+
+|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  | Theil's U| MASE |
+|-----------|------|--------|-------|----------|---------|-------|-------|----------|------|
+STL_ARIMA    |13.78588	|60.12093|  40.47667|-Inf |	Inf|  0.8830884|  0|  0.7925502 |
+SARIMA       |12.33990	|60.54586|	40.76787|	-Inf|	Inf|	0.8847718|	0|	0.7982519 |
+ARIMA(3,1,2) | 12.63077	|60.60519|	40.81702|	-Inf|	Inf|	0.8847649|	0|	0.7992142 |
+ARIMA(4,1,1) | 13.19299	|60.72503|	40.91860|	-Inf|	Inf|	0.8847659|	0|	0.8012033 |
+
+The MASE for STL-ARIMA(5,1,2) is 0.79 which means it outperforms a naive forecast (its errors are 21% smaller than a naive forecasts).
+
+The STL-ARIMA(5,1,2) model has the best MASE.
 
 # Conclusion
-The best model was the ARIMA model: ARIMA(3,1,1)(0,0,2)[48].
-
-Its non-seasonal component had AR(3) (which captured short term autocorrelation up to lag 3), I(1) (a first order differencing to make the data stationary), MA(1) (which corrected for noise and shocks using lag 1 residuals). Its seasonal component with a periodicity of 48 (the seasonality repeats every full day as there are 48 trading periods per day) and it did not include a seasonal AR or I (no seasonal autocorrelation or differencing) and had a seasonal MA(2) (uses forecast errors from 1 and 2 days ago (lags at 48 and 96 intervals) to adjust the current days forecast).
-
-The models mean error was 6.56 which means on average its forecasts overestimate actual prices by about 6.56 dollars per megawatt hour.
-
-The models root mean square error was 19.17 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value is probably due to how volatile the data is.
-
-The models mean absolute error was 13.71 which means that forecasts were off by 13.71 units on average. This is 13.6% of the annual mean, the mean energy price for 2018 was 100.62, so the mean absolute error isn't that high considering how volatile the data is.
-
-The mean percentage data was 3.29% which means that the model tends to forecast higher electricity prices than reality.
-
-The mean absolute percentage error was 15.65% which means that the models forecasts were off by 15.65% on average.
-
-The models MASE was 0.70 which is a scaled comparison to a naive model which means the ARIMA model outperforms a naive forecast.
-
-The models ACF1 was 0.65 which indicates that the residuals are moderately autocorrelated so there is some structure or pattern in the data that the model did not capture.
-
-The ARIMA model did better than the STL-ARIMA, ARIMAX and TBATS models which just shows that a more complex model does not equal a better performance, those other models were overfitting on the training data and not generalizing well enough to forecast the following year.
+My hypothesis was proven incorrect, the STL-ARIMA model outperformed a simple ARIMA model.
 
 # References and Citations
 
