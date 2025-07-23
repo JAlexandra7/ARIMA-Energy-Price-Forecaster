@@ -1,0 +1,801 @@
+---
+title: "2nd half of project"
+author: "Juliet Alexandra"
+date: "2025-07-17"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+```{r, warning=FALSE}
+suppressPackageStartupMessages({
+library(dplyr)
+library(tidyr)
+library(tseries)
+library(nortest)
+library(purrr) 
+library(FinTS)
+library(forecast)})
+```
+
+Ensuring reproducibility of results:
+```{r}
+set.seed(48)
+```
+
+# Loading models and data
+```{r}
+ARIMA_model1 <- readRDS("Models/arima_model.rds")
+ARIMAX_model_fx <- readRDS("Models/arima_with_xreg.rds")
+ARIMAX_model1 <- readRDS("Models/arimax_model.rds")
+Energy_generation_model <- readRDS("Models/Energy_generation_model.rds")
+GARCH_model <- readRDS("Models/garch_model.rds")
+SARIMA_model1 <- readRDS("Models/sarima_model.rds")
+STL_ARIMA_model1 <- readRDS("Models/stl_arima_model.rds")
+
+```
+
+```{r}
+time_series_data <- read.csv("Saved_Datasets/timeseries.csv")
+Training_set <- read.csv("Saved_Datasets/Training_set.csv")
+
+Val_time_series <- read.csv("Saved_Datasets/Val_time_series.csv")
+Val_set <- read.csv("Saved_Datasets/Val_set.csv")
+xreg <- read.csv("Saved_Datasets/xreg.csv")
+xreg_future <- read.csv("Saved_Datasets/xreg_future.csv")
+
+xreg <- as.matrix(xreg)
+xreg_future <- as.matrix(xreg_future)
+
+```
+
+
+```{r}
+time_series_data <- ts(time_series_data$Value, start = c(2017, 1), frequency = 48)
+Val_time_series <- ts(Val_time_series$Value, start = c(2018, 1), frequency = 48)
+First_order_diff <- diff(time_series_data)
+```
+
+# Structural checks and Statistical diagnostics: Evaluating residuals
+## ARIMA
+
+Ljung-Box test:
+
+Null hypothesis: There is no autocorrelation in the residuals.
+
+Alternative hypothesis: There is autocorrelation in the residuals.
+
+Autocorrelation check with Ljung Box test, acf and pacf plots:
+```{r}
+checkresiduals(ARIMA_model1)
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there is autocorrelation in the residuals.
+
+```{r}
+acf(residuals(ARIMA_model1), lag.max = 10000)
+```
+There are a lot of spikes outside the confidence bounds between lags 0 and 25 particularly, this gradually tapers off as the lags increase. Due to this I will be increasing the MA terms.
+
+```{r}
+pacf(residuals(ARIMA_model1), lag.max = 10000)
+```
+In the partial autocorrelation plot, there are many spikes that are outside the confidence bounds, particularly at around lag 1, lag 25 and lag 48. This then gradually tapers off. This means that there is still some autocorrelation in the residuals, this is supported by the ACF1 value of 0.65 from the previous evaluation of the model on the validation set. Due to this I will be increasing the AR term.
+
+Anderson-Darling normality test:
+
+Null hypothesis: The residuals follow a normal distribution.
+
+Alternative hypothesis: The residuals deviate significantly from a normal distribution.
+
+```{r}
+ad.test(residuals(ARIMA_model1))
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that the residuals deviate significantly from a normal distribution.
+
+Since the residuals deviate significantly from normality, the ARIMA models forecast uncertainty estimates could be inaccurate (too narrow or too wide).
+
+However ARIMA can produce decent forecasts without perfectly normal residuals, so this isn't extremely concerning.
+
+ARCH test on residuals:
+
+Null Hypothesis: No ARCH effects in the residuals (the variance is constant over time (homoscedastic)).
+
+Alternative Hypothesis: ARCH effects are present (the residual variance changes over time and depends on past squared residuals (heteroskedasticity)).
+
+```{r}
+ArchTest(residuals(ARIMA_model1), lags = 48)
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there are ARCH effects present in the residuals (the residual variance changes over time and depends on past squared residuals (heteroskedasticity). The assumption of constant variance for the ARIMA model is violated, meaning that the models forecast confidence intervals may be inaccurate.
+
+Checking for constant variance in plot:
+```{r}
+plot(residuals(ARIMA_model1) ~ fitted(ARIMA_model1))
+```
+As the fitted values increase, the residuals fan out, showing increasing variance. This plot supports the results from the ARCH test.
+
+
+Checking the mean of the residuals is reasonably close to zero with a one sample t-test:
+```{r}
+t.test(residuals(ARIMA_model1), mu = 0)
+```
+The p-value is much larger than the significance level of 0.05 which means that I fail to reject the null hypothesis and conclude that the mean of the residuals is reasonably close to zero.
+
+Checking that the time series is invertible (eg. if its errors can be represented as a weighted sum of past observations)
+
+```{r}
+ARIMA_model1$coef
+```
+The model has one MA term ma1.
+
+```{r}
+ma_coefs <- c(1, -ARIMA_model1$coef["ma1"])  # Inverting sign for root checking
+Mod(polyroot(ma_coefs))  # Gives modulus of each root (polyroot gives the complex roots)
+```
+
+The root of the MA polynomial is larger than 1, which means that the root is outside of the unit circle, this means that the model is invertible. The ARIMA model satisfies the invertibility condition for both the MA component.
+
+
+Based on the results of these tests I've decided to adjust the ARIMA model in the following ways:
+
+I am going to apply a Box-Cox transformation to my time series prior to fitting ARIMA to stabilize the variance.
+
+I'm going to use robust standard errors as they ar less sensitive to violations of constant variance and non-normal residuals.
+
+I am going to increase the orders of the AR and MA components because the Ljung box test shows that there is still autocorrelation in the residuals, which means the ARIMA model is not capturing all the underlying structure/patterns in the data.
+
+## SARIMA
+
+Ljung-Box test:
+
+Null hypothesis: There is no autocorrelation in the residuals.
+
+Alternative hypothesis: There is autocorrelation in the residuals.
+
+Autocorrelation check with Ljung Box test, acf and pacf plots:
+```{r}
+checkresiduals(SARIMA_model1)
+```
+The p-value is extremely small, I reject the null hypothesis and conclude that there is autocorrelation in the residuals. This means that the SARIMA model hasn't fully captured the time dependent structure in the series.
+
+Anderson-Darling normality test:
+```{r}
+ad.test(residuals(SARIMA_model1))
+```
+The p-value is very small, I reject the null hypothesis that the residuals are normally distributed and conclude that the residuals are non-normal.
+
+ARCH test on residuals:
+```{r}
+ArchTest(residuals(SARIMA_model1), lags = 48)
+```
+The p-value is much smaller than 0.05 which means I reject H0 (that there is no ARCH effect (residuals are homoskedastic)) and conclude that there is evidence of heteroskedasticity
+
+Checking for constant variance in plot:
+```{r}
+plot(residuals(SARIMA_model1) ~ fitted(SARIMA_model1))
+```
+As the fitted values increase, the residuals fan out, showing increasing variance.
+
+There's a tight cluster around zero residuals for lower fitted values.
+
+This plot supports the results from the ARCH test.
+
+Checking the mean of the residuals is reasonably close to zero with a one sample t-test:
+```{r}
+t.test(residuals(SARIMA_model1), mu = 0)
+```
+The mean of the residuals is 0.025 
+
+The p-value of the one sample t-test is 0.8665, there is not enough evidence to reject the null hypothesis, I conclude that the mean of the residuals is equal to zero.
+
+This tells me the model is unbiased, with residuals (errors) centered around 0. It also tells me that the models forecasts aren't systematically over or under predicting.
+
+```{r}
+acf(residuals(SARIMA_model1), lag.max = 10000)
+```
+Most autocorrelation bars fall within the dashed blue confidence bands, suggesting they're not statistically significant. However there are some lags outside of the confidence bounds at around lag 25, this suggests the MA term is under specified.
+
+```{r}
+pacf(residuals(SARIMA_model1), lag.max = 10000)
+```
+
+There are a few spikes outside of the confidence bounds, particularly between lag 1 and lag 25 suggesting there is still significant autocorrelation in the residuals. This implies that the AR term (p) is under specified. I am going to try increasing the AR component to capture the remaining autocorrelation.
+
+Checking that the time series is invertible (eg. if its errors can be represented as a weighted sum of past observations)
+
+```{r}
+SARIMA_model1$coef
+```
+The model has MA terms ma1, and sma1.
+
+I'm going to check the roots of the MA polynomial (All roots should be outside the unit circle (modulus > 1) for the model to be invertible).
+
+```{r}
+ma_coefs <- c(1, -SARIMA_model1$coef["ma1"])  # Inverting sign for root checking
+Mod(polyroot(ma_coefs))  # Gives modulus of each root (polyroot gives the complex roots)
+```
+
+I'm checking the seasonal MA separately from the non seasonal MA because the invertibility condition must hold for both polynomials (non seasonal and seasonal) independently.
+
+```{r}
+sma_coefs <- c(1, -SARIMA_model1$coef["sma1"])
+Mod(polyroot(sma_coefs))
+```
+
+For invertibility, the modulus (absolute value) of all roots must be larger than 1.
+
+All of these are well outside the unit circle (i.e. modulus > 1), which means the ARIMA model satisfies the invertibility condition for both the non-seasonal and seasonal MA components.
+
+## STL-ARIMA
+
+Ljung-Box test:
+
+Null hypothesis: There is no autocorrelation in the residuals.
+
+Alternative hypothesis: There is autocorrelation in the residuals.
+
+Autocorrelation check with Ljung Box test, acf and pacf plots:
+```{r}
+checkresiduals(STL_ARIMA_model1)
+```
+The p-value is extremely small I reject the null hypothesis and conclude that there is autocorrelation in the residuals. This means that the STL-ARIMA model hasn't fully captured the time dependent structure in the series.
+
+Anderson-Darling normality test:
+```{r}
+ad.test(residuals(STL_ARIMA_model1))
+```
+The p-value is very small, I reject the null hypothesis that the residuals are normally distributed and conclude that the residuals are non-normal.
+
+ARCH test on residuals:
+```{r}
+ArchTest(residuals(STL_ARIMA_model1), lags = 48)
+```
+The p-value is much smaller than 0.05 which means I reject H0 (that there is no ARCH effect (residuals are homoskedastic)) and conclude that there is evidence of heteroskedasticity.
+
+Checking for constant variance and mean zero in plot:
+```{r}
+plot(residuals(STL_ARIMA_model1) ~ fitted(STL_ARIMA_model1))
+```
+As the fitted values increase, the residuals fan out, showing increasing variance. There's a tight cluster around zero residuals for lower fitted values. This plot supports the results of the ARCH test.
+
+Checking mean is reasonably close to zero with a one sample t-test:
+```{r}
+t.test(residuals(STL_ARIMA_model1), mu = 0)
+
+```
+The mean of the residuals is 0.026 
+
+The p-value of the one sample t-test is 0.8594, there is not enough evidence to reject the null hypothesis, I conclude that the mean of the residuals is equal to zero.
+
+```{r}
+acf(residuals(STL_ARIMA_model1), lag.max = 10000)
+```
+There is a significant spike at around lags 1 and 25, this suggests that the MA term is under specified.
+
+```{r}
+pacf(residuals(STL_ARIMA_model1), lag.max = 10000)
+```
+There are a significant spikes outside of the confidence bounds, particularly between lag 1 and lag 25 suggesting there is still significant autocorrelation in the residuals. This implies that the AR term (p) is under specified. I am going to try increasing the AR component to capture the remaining autocorrelation.
+
+Checking that the time series is invertible (eg. if its errors can be represented as a weighted sum of past observations)
+
+```{r}
+arima_part <- STL_ARIMA_model1$model
+arima_part$coef
+```
+The model has one MA term, ma1.
+
+I'm going to check the roots of the MA polynomial (All roots should be outside the unit circle (modulus > 1) for the model to be invertible).
+
+```{r}
+ma_coefs <- c(1, -arima_part$coef["ma1"])  # Inverting sign for root checking
+Mod(polyroot(ma_coefs))  # Gives modulus of each root (polyroot gives the complex roots)
+```
+
+For invertibility, the modulus (absolute value) of all roots must be larger than 1.
+
+Since the absolute value of the root is outside the unit circle (i.e. modulus > 1), this means the ARIMA part of the STL-ARIMA model satisfies the invertibility condition for both the MA components.
+
+## ARIMAX
+
+Ljung-Box test:
+
+Null hypothesis: There is no autocorrelation in the residuals.
+
+Alternative hypothesis: There is autocorrelation in the residuals.
+
+Autocorrelation check with Ljung Box test, acf and pacf plots:
+```{r}
+checkresiduals(ARIMAX_model1)
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there is autocorrelation in the residuals.
+
+```{r}
+acf(residuals(ARIMAX_model1), lag.max = 10000)
+```
+Most lags are within the confidence bounds but there is a spike around lag 25 that is outside the confidence bounds. I'm going to increase the MA term because of this.
+
+```{r}
+pacf(residuals(ARIMAX_model1), lag.max = 10000)
+```
+
+There are a significant spikes outside of the confidence bounds, particularly between lag 1 and lag 25 suggesting there is still significant autocorrelation in the residuals. This implies that the AR term (p) is under specified. I am going to try increasing the AR component to capture the remaining autocorrelation.
+
+Anderson-Darling normality test:
+```{r}
+ad.test(residuals(ARIMAX_model1))
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that the residuals deviate significantly from a normal distribution.
+
+Since the residuals deviate significantly from normality, the ARIMAX model's forecast uncertainty estimates could be inaccurate (too narrow or too wide).
+
+ARCH test on residuals:
+```{r}
+ArchTest(residuals(ARIMAX_model1), lags = 48)
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there are ARCH effects present in the residuals (the residual variance changes over time and depends on past squared residuals (heteroskedasticity). The assumption of constant variance for the ARIMAX model is violated, meaning that the models forecast confidence intervals may be inaccurate.
+
+Checking for constant variance in plot:
+```{r}
+plot(residuals(ARIMAX_model1) ~ fitted(ARIMAX_model1))
+```
+As the fitted values increase, the residuals fan out, showing increasing variance.
+
+There's a tight cluster around zero residuals for lower fitted values.
+
+This plot supports the results from the ARCH test.
+
+
+Checking the mean of the residuals is reasonably close to zero with a one sample t-test:
+```{r}
+t.test(residuals(ARIMAX_model1), mu = 0)
+
+```
+The mean of the residuals is 0.02 
+
+The p-value of the one sample t-test is 0.8789, there is not enough evidence to reject the null hypothesis, I conclude that the mean of the residuals is equal to zero.
+
+Checking that the time series is invertible (eg. if its errors can be represented as a weighted sum of past observations)
+
+```{r}
+ARIMAX_model1$coef
+```
+The model has MA terms ma1, ma2, and sma1.
+
+```{r}
+ma_coefs <- c(1, -ARIMAX_model1$coef["ma1"], -ARIMAX_model1$coef["ma2"])  # Inverting sign for root checking
+Mod(polyroot(ma_coefs))  # Gives modulus of each root (polyroot gives the complex roots)
+```
+
+```{r}
+sma_coefs <- c(1, -ARIMAX_model1$coef["sma1"])
+Mod(polyroot(sma_coefs))
+```
+For invertibility, the modulus (absolute value) of all roots must be larger than 1.
+
+All of these are well outside the unit circle (i.e. modulus > 1), which means the ARIMAX model satisfies the invertibility condition for both the non-seasonal and seasonal MA components.
+
+# Model refinement
+For every single model the residuals showed autocorrelation, non-normality and had ARCH effects (non constant variance).
+
+Based on this I've decided to adjust the models in the following ways:
+
+I am going to apply a Box-Cox transformation to my time series prior to fitting the models to stabilize the variance.
+
+I am going to increase the orders of the AR and MA components because the Ljung box test's show that there is still autocorrelation in the residuals of every single model, which means that every single model is not capturing all the underlying structure/patterns in the data. The ACF and PACF plots support this.
+
+I will be adding additional variables to ARIMAX to see if that improves the models forecasting accuracy.
+
+# ARIMA
+Applying Box-Cox to time series:
+```{r}
+lambda <- BoxCox.lambda(time_series_data) 
+ts_bc <- BoxCox(time_series_data, lambda = lambda)
+
+par(mfrow = c(1, 2))
+plot(time_series_data, main = "Original Series")
+plot(ts_bc, main = "Box-Cox Transformed Series")
+```
+
+Box-Cox time series model with no change in order of AR and MA components:
+```{r}
+ARIMA_model2 <- Arima(ts_bc, order = c(3, 1, 1))
+```
+
+Box-Cox time series model with increased order of AR component:
+```{r}
+ARIMA_model3 <- Arima(ts_bc, order = c(4, 1, 1))
+```
+
+Box-Cox time series model with increased order of MA component:
+```{r}
+ARIMA_model4 <- Arima(ts_bc, order = c(3, 1, 2))
+```
+
+Box-Cox time series model with increased order of AR and MA components:
+```{r}
+ARIMA_model5 <- Arima(ts_bc, order = c(4, 1, 2))
+```
+
+Time series model (no transformation) with increased AR component:
+```{r}
+ARIMA_model6 <- Arima(time_series_data, order = c(4,1,1))
+```
+
+Time series model (no transformation) with increased MA component:
+```{r}
+ARIMA_model7 <- Arima(time_series_data, order = c(3,1,2))
+```
+
+Time series model (no transformation) with increased AR and MA components:
+```{r}
+ARIMA_model8 <- Arima(time_series_data, order = c(4,1,2))
+```
+
+
+# SARIMA
+Box-Cox time series model:
+```{r}
+SARIMA_model2 <- Arima(ts_bc, order = c(3,1,1),
+                       seasonal = list(order = c(0, 0, 1), period = 48))
+```
+
+Box-Cox time series model with increased AR:
+```{r}
+SARIMA_model3 <- Arima(ts_bc, order = c(4,1,1),
+                       seasonal = list(order = c(0, 0, 1), period = 48))
+```
+
+Box-Cox time series model with increased MA:
+```{r}
+SARIMA_model4 <- Arima(ts_bc, order = c(3,1,2),
+                       seasonal = list(order = c(0, 0, 1), period = 48))
+```
+
+Box-Cox time series model with increased AR and MA:
+```{r}
+SARIMA_model5 <- Arima(ts_bc, order = c(4,1,2),
+                       seasonal = list(order = c(0, 0, 1), period = 48))
+```
+
+Box-Cox time series model with increased seasonal MA:
+```{r}
+SARIMA_model6 <- Arima(ts_bc, order = c(3,1,1),
+                       seasonal = list(order = c(0, 0, 2), period = 48))
+```
+
+Time series without transformation, and increased AR:
+```{r}
+SARIMA_model7 <- Arima(ts_bc, order = c(4,1,1),
+                       seasonal = list(order = c(0, 0, 1), period = 48))
+```
+
+Time series without transformation, and increased MA:
+```{r}
+SARIMA_model8 <- Arima(ts_bc, order = c(3,1,2),
+                       seasonal = list(order = c(0, 0, 1), period = 48))
+```
+
+Time series without transformation, and increased AR and MA terms:
+```{r}
+SARIMA_model9 <- Arima(ts_bc, order = c(4,1,2),
+                       seasonal = list(order = c(0, 0, 1), period = 48))
+```
+
+Time series without transformation, and increased seasonal MA terms:
+```{r}
+SARIMA_model10 <- Arima(ts_bc, order = c(3,1,1),
+                       seasonal = list(order = c(0, 0, 2), period = 48))
+```
+
+# STL-ARIMA
+```{r}
+STL_ARIMA_model2 <- stlm(ts_bc, s.window = "periodic", robust = TRUE,
+                         modelfunction = function(x) Arima(x, order = c(5, 1, 1)))
+```
+
+```{r}
+STL_ARIMA_model3 <- stlm(ts_bc, s.window = "periodic", robust = TRUE,
+                         modelfunction = function(x) Arima(x, order = c(6, 1, 1)))
+```
+
+```{r}
+STL_ARIMA_model4 <- stlm(ts_bc, s.window = "periodic", robust = TRUE,
+                         modelfunction = function(x) Arima(x, order = c(5, 1, 2)))
+```
+
+```{r}
+STL_ARIMA_model5 <- stlm(ts_bc, s.window = "periodic", robust = TRUE,
+                         modelfunction = function(x) Arima(x, order = c(6, 1, 2)))
+```
+
+```{r}
+STL_ARIMA_model6 <- stlm(time_series_data, s.window = "periodic", robust = TRUE,
+                         modelfunction = function(x) Arima(x, order = c(6, 1, 1)))
+```
+
+```{r}
+STL_ARIMA_model7 <- stlm(time_series_data, s.window = "periodic", robust = TRUE,
+                         modelfunction = function(x) Arima(x, order = c(5, 1, 2)))
+```
+
+```{r}
+STL_ARIMA_model8 <- stlm(time_series_data, s.window = "periodic", robust = TRUE,
+                         modelfunction = function(x) Arima(x, order = c(6, 1, 2)))
+```
+
+# ARIMAX
+ARIMAX with the original xreg (season, energy generation and Is_weekend):
+```{r}
+ARIMAX_model2 <- Arima(ts_bc, order = c(2,1,2), seasonal = list(order = c(0, 0, 1), period = 48),
+                      xreg = xreg)
+```
+
+```{r}
+ARIMAX_model3 <- Arima(ts_bc, order = c(3,1,2), seasonal = list(order = c(0, 0, 1), period = 48),
+                      xreg = xreg)
+```
+
+```{r}
+ARIMAX_model4 <- Arima(ts_bc, order = c(2,1,3), seasonal = list(order = c(0, 0, 1), period = 48),
+                      xreg = xreg)
+```
+
+```{r}
+ARIMAX_model5 <- Arima(ts_bc, order = c(3,1,3), seasonal = list(order = c(0, 0, 1), period = 48),
+                      xreg = xreg)
+```
+
+# Reevaluation on Validation set
+## Forecasting
+### ARIMA
+I made a short custom function for fitting the model, inverting the Box-Cox and converting it to a time series because I felt that doing this for every model was taking up too much space.
+```{r}
+Forecasting_model <- function(model, h, is_box = FALSE) {
+  forecast_model <- forecast(model, h)
+  if(is_box) {
+    forecast_model <- InvBoxCox(forecast_model$mean, lambda)
+    print("inverted boxcox")
+  }
+  forecast_model <- ts(forecast_model, start = c(2018, 1), frequency = 48)
+}
+```
+
+```{r}
+forecast_ARIMA2 <- Forecasting_model(ARIMA_model2, 17520, is_box = TRUE)
+```
+```{r}
+forecast_ARIMA3 <- Forecasting_model(ARIMA_model3, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_ARIMA4 <- Forecasting_model(ARIMA_model4, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_ARIMA5 <- Forecasting_model(ARIMA_model5, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_ARIMA6 <- Forecasting_model(ARIMA_model6, 17520, is_box = FALSE)
+```
+
+```{r}
+forecast_ARIMA7 <- Forecasting_model(ARIMA_model7, 17520, is_box = FALSE)
+```
+
+```{r}
+forecast_ARIMA8 <- Forecasting_model(ARIMA_model8, 17520, is_box = FALSE)
+```
+
+
+### SARIMA
+
+```{r}
+forecast_SARIMA2 <- Forecasting_model(SARIMA_model2, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_SARIMA3 <- Forecasting_model(SARIMA_model3, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_SARIMA4 <- Forecasting_model(SARIMA_model4, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_SARIMA5 <- Forecasting_model(SARIMA_model5, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_SARIMA6 <- Forecasting_model(SARIMA_model6, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_SARIMA7 <- Forecasting_model(SARIMA_model7, 17520, is_box = FALSE)
+```
+
+```{r}
+forecast_SARIMA8 <- Forecasting_model(SARIMA_model8, 17520, is_box = FALSE)
+```
+
+```{r}
+forecast_SARIMA9 <- Forecasting_model(SARIMA_model9, 17520, is_box = FALSE)
+```
+
+```{r}
+forecast_SARIMA10 <- Forecasting_model(SARIMA_model10, 17520, is_box = FALSE)
+```
+
+### STL-ARIMA
+```{r}
+forecast_STL2 <- Forecasting_model(STL_ARIMA_model2, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_STL3 <- Forecasting_model(STL_ARIMA_model3, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_STL4 <- Forecasting_model(STL_ARIMA_model4, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_STL5 <- Forecasting_model(STL_ARIMA_model5, 17520, is_box = TRUE)
+```
+
+```{r}
+forecast_STL6 <- Forecasting_model(STL_ARIMA_model6, 17520, is_box = FALSE)
+```
+
+```{r}
+forecast_STL7 <- Forecasting_model(STL_ARIMA_model7, 17520, is_box = FALSE)
+```
+
+```{r}
+forecast_STL8 <- Forecasting_model(STL_ARIMA_model8, 17520, is_box = FALSE)
+```
+
+### ARIMAX
+```{r}
+Forecasting_model_X <- function(model, h, is_box = FALSE, xreg_future) {
+  forecast_model <- forecast(model, h, xreg = xreg_future)
+  if(is_box) {
+    forecast_model <- InvBoxCox(forecast_model$mean, lambda)
+    print("inverted boxcox")
+  }
+  forecast_model <- ts(forecast_model, start = c(2018, 1), frequency = 48)
+}
+```
+
+```{r}
+forecast_ARIMAX2 <- Forecasting_model_X(ARIMAX_model2, 17520, is_box = TRUE, xreg_future)
+```
+
+```{r}
+forecast_ARIMAX3 <- Forecasting_model_X(ARIMAX_model3, 17520, is_box = TRUE, xreg_future)
+```
+
+```{r}
+forecast_ARIMAX4 <- Forecasting_model_X(ARIMAX_model4, 17520, is_box = TRUE, xreg_future)
+```
+
+```{r}
+forecast_ARIMAX5 <- Forecasting_model_X(ARIMAX_model5, 17520, is_box = TRUE, xreg_future)
+```
+
+### Loading Original Models Forecasts
+```{r}
+forecast_ARIMA <- readRDS("Saved_Forecasts/forecast_ARIMA.rds")
+forecast_SARIMA <- readRDS("Saved_Forecasts/forecast_SARIMA.rds")
+forecast_Stl_ARIMA <- readRDS("Saved_Forecasts/forecast_STL.rds")
+forecast_ARIMAX <- readRDS("Saved_Forecasts/forecast_ARIMAX.rds")
+forecast_GARCH <- readRDS("Saved_Forecasts/forecast_GARCH.rds")
+```
+
+## Model accuracy:
+```{r}
+ARIMA_acc <- accuracy(forecast_ARIMA, Val_time_series)
+ARIMA2_acc <- accuracy(forecast_ARIMA2, Val_time_series)
+ARIMA3_acc <- accuracy(forecast_ARIMA3, Val_time_series)
+ARIMA4_acc <- accuracy(forecast_ARIMA4, Val_time_series)
+ARIMA5_acc <- accuracy(forecast_ARIMA5, Val_time_series)
+ARIMA6_acc <- accuracy(forecast_ARIMA6, Val_time_series)
+ARIMA7_acc <- accuracy(forecast_ARIMA7, Val_time_series)
+ARIMA8_acc <- accuracy(forecast_ARIMA8, Val_time_series)
+```
+
+```{r}
+SARIMA_acc <- accuracy(forecast_SARIMA, Val_time_series)
+SARIMA2_acc <- accuracy(forecast_SARIMA2, Val_time_series)
+SARIMA3_acc <- accuracy(forecast_SARIMA3, Val_time_series)
+SARIMA4_acc <- accuracy(forecast_SARIMA4, Val_time_series)
+SARIMA5_acc <- accuracy(forecast_SARIMA5, Val_time_series)
+SARIMA6_acc <- accuracy(forecast_SARIMA6, Val_time_series)
+SARIMA7_acc <- accuracy(forecast_SARIMA7, Val_time_series)
+SARIMA8_acc <- accuracy(forecast_SARIMA8, Val_time_series)
+SARIMA9_acc <- accuracy(forecast_SARIMA9, Val_time_series)
+SARIMA10_acc <- accuracy(forecast_SARIMA10, Val_time_series)
+```
+
+
+```{r}
+STL_ARIMA_acc <- accuracy(forecast_Stl_ARIMA, Val_time_series)
+STL_ARIMA2_acc <- accuracy(forecast_STL2, Val_time_series)
+STL_ARIMA3_acc <- accuracy(forecast_STL3, Val_time_series)
+STL_ARIMA4_acc <- accuracy(forecast_STL4, Val_time_series)
+STL_ARIMA5_acc <- accuracy(forecast_STL5, Val_time_series)
+STL_ARIMA6_acc <- accuracy(forecast_STL6, Val_time_series)
+STL_ARIMA7_acc <- accuracy(forecast_STL7, Val_time_series)
+STL_ARIMA8_acc <- accuracy(forecast_STL8, Val_time_series)
+```
+
+```{r}
+ARIMAX_acc <- accuracy(forecast_ARIMAX, Val_time_series)
+ARIMAX2_acc <- accuracy(forecast_ARIMAX2, Val_time_series)
+ARIMAX3_acc <- accuracy(forecast_ARIMAX3, Val_time_series)
+ARIMAX4_acc <- accuracy(forecast_ARIMAX4, Val_time_series)
+ARIMAX5_acc <- accuracy(forecast_ARIMAX5, Val_time_series)
+```
+
+
+```{r}
+acc_list_A <- list(ARIMA  = ARIMA_acc, ARIMA2 = ARIMA2_acc, ARIMA3 = ARIMA3_acc, ARIMA4 = ARIMA4_acc,
+                 ARIMA5 = ARIMA5_acc, ARIMA6 = ARIMA6_acc, ARIMA7 = ARIMA7_acc, ARIMA8 = ARIMA8_acc)
+
+acc_list_S <- list(SARIMA  = SARIMA_acc, SARIMA2 = SARIMA2_acc, SARIMA3 = SARIMA3_acc, SARIMA4 = SARIMA4_acc,
+                 SARIMA5 = SARIMA5_acc, SARIMA6 = SARIMA6_acc, SARIMA7 = SARIMA7_acc, SARIMA8 = SARIMA8_acc,
+                 SARIMA9 = SARIMA9_acc, SARIMA10 = SARIMA10_acc)
+
+acc_list_STL <- list(STL_ARIMA  = STL_ARIMA_acc, STL_ARIMA2 = STL_ARIMA2_acc, STL_ARIMA3 = STL_ARIMA3_acc, 
+                   STL_ARIMA4 = STL_ARIMA4_acc, STL_ARIMA5 = STL_ARIMA5_acc, STL_ARIMA6 = STL_ARIMA6_acc, 
+                   STL_ARIMA7 = STL_ARIMA7_acc, STL_ARIMA8 = STL_ARIMA8_acc)
+
+acc_list_X <- list(ARIMAX  = ARIMAX_acc, ARIMAX2 = ARIMAX2_acc, ARIMAX3 = ARIMAX3_acc, ARIMAX4 = ARIMAX4_acc,
+                 ARIMAX5 = ARIMAX5_acc)
+```
+
+### ARIMA
+```{r}
+acc_df <- map_df(acc_list_A, ~ as.data.frame(.x)["Test set", ], .id = "Model")
+acc_df %>% arrange(MASE) %>% mutate(across(where(is.numeric), ~ round(.x, digits = 2)))
+```
+The original model was outperformed by ARIMA(411) and ARIMA(312).
+
+### SARIMA
+```{r}
+acc_df_S <- map_df(acc_list_S, ~ as.data.frame(.x)["Test set", ], .id = "Model")
+acc_df_S %>% arrange(MASE) %>% mutate(across(where(is.numeric), ~ round(.x, digits = 2)))
+```
+
+The original SARIMA model performed best across all accuracy metrics.
+
+### STL-ARIMA
+```{r}
+acc_df_STL <- map_df(acc_list_STL, ~ as.data.frame(.x)["Test set", ], .id = "Model")
+acc_df_STL %>% arrange(MASE) %>% mutate(across(where(is.numeric), ~ round(.x, digits = 2)))
+```
+The original model was outperformed by the STL-ARIMA(5,1,2) model (which had its MA term increased by one).
+
+### ARIMAX
+```{r}
+acc_df_X <- map_df(acc_list_X, ~ as.data.frame(.x)["Test set", ], .id = "Model")
+acc_df_X %>% arrange(MASE) %>% mutate(across(where(is.numeric), ~ round(.x, digits = 2)))
+```
+
+The original model performed best on every metric.
+
+
+I can see that across all models performances, the models that were trained on BoxCox transformed time series performed the worst.
+
+# References and Citations
+
+Electricity Authority. (n.d.). Final energy prices by month [Dataset]. EMI – Electricity Market Information. Retrieved between July 11 and July 15, 2025, from
+https://www.emi.ea.govt.nz/Wholesale/Datasets/DispatchAndPricing/FinalEnergyPrices/ByMonth
+
+Electricity Authority. (n.d.). Generation output by plant [Dataset]. EMI – Electricity Market Information. Retrieved between July 18 and July 20, 2025, from
+https://www.emi.ea.govt.nz/Wholesale/Datasets/Generation/Generation_MD
+
+...

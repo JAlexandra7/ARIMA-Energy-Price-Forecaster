@@ -1,0 +1,315 @@
+---
+title: "2nd half of project"
+author: "Juliet Alexandra"
+date: "2025-07-17"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+```{r, warning=FALSE}
+suppressPackageStartupMessages({
+library(dplyr)
+library(tidyr)
+library(fGarch)
+library(gridExtra)
+library(reshape2)
+library(ggplot2)
+library(ggpmisc)
+library(tseries)
+library(nortest)
+library(zoo)
+library(car)
+library(lubridate)
+library(purrr)
+library(caret)
+library(FinTS)
+library(xts)
+library(rugarch)
+library(tibble)
+library(forecast)})
+```
+
+Ensuring reproducibility of results:
+```{r}
+set.seed(48)
+```
+
+# Loading models and datasets
+```{r}
+ARIMA_model1 <- readRDS("Models/arima_model.rds")
+ARIMAX_model2 <- readRDS("Models/arima_with_xreg.rds")
+ARIMAX_model1 <- readRDS("Models/arimax_model.rds")
+Energy_generation_model <- readRDS("Models/Energy_generation_model.rds")
+GARCH_model <- readRDS("Models/garch_model.rds")
+SARIMA_model1 <- readRDS("Models/sarima_model.rds")
+STL_ARIMA_model1 <- readRDS("Models/stl_arima_model.rds")
+
+```
+
+```{r}
+time_series_data <- read.csv("Saved_Datasets/timeseries.csv")
+Training_set <- read.csv("Saved_Datasets/Training_set.csv")
+
+Val_time_series <- read.csv("Saved_Datasets/Val_time_series.csv")
+Val_set <- read.csv("Saved_Datasets/Val_set.csv")
+
+xreg <- read.csv("Saved_Datasets/xreg.csv")
+xreg_future <- read.csv("Saved_Datasets/xreg_future.csv")
+
+xreg <- as.matrix(xreg)
+xreg_future <- as.matrix(xreg_future)
+```
+
+```{r}
+time_series_data <- ts(time_series_data$Value, start = c(2017, 1), frequency = 48)
+Val_time_series <- ts(Val_time_series$Value, start = c(2018, 1), frequency = 48)
+First_order_diff <- diff(time_series_data)
+```
+
+# Combining the training and test sets
+I will be training the following models on both the 2017 and 2018 energy prices (my training set and validation set), then I will forecast the 2019 energy prices, and evaluating the models performance based on the actual 2019 energy prices (test set).
+
+```{r}
+# Combining train and validation sets
+train_val <- bind_rows(as_tibble(time_series_data), as_tibble(Val_time_series))
+train_val <- ts(train_val, start = c(2017, 1), frequency = 48)
+
+# box-cox transformation
+lambda <- BoxCox.lambda(train_val)
+ts_bc <- BoxCox(train_val, lambda)
+
+# First order differencing:
+train_val_diff <- diff(train_val)
+
+```
+
+# Refitting models on combined dataset and forecasting:
+### ARIMA
+```{r}
+ARIMA_model_Final_411 <- Arima(train_val, order = c(4,1,1))
+```
+
+I'm going to forecast 48 trading periods for 12 months
+```{r}
+forecast_ARIMA_411 <- forecast(ARIMA_model_Final_411, h = 17520)
+forecast_ARIMA_411 <- ts(forecast_ARIMA_411$mean, start = c(2019, 1), frequency = 48)
+```
+
+```{r}
+ARIMA_model_Final_312 <- Arima(train_val, order = c(3,1,2))
+```
+
+I'm going to forecast 48 trading periods for 12 months
+```{r}
+forecast_ARIMA_312 <- forecast(ARIMA_model_Final_312, h = 17520)
+forecast_ARIMA_312 <- ts(forecast_ARIMA_312$mean, start = c(2019, 1), frequency = 48)
+```
+
+### SARIMA
+```{r}
+SARIMA_model_Final <- Arima(train_val, order = c(3,1,1),
+                           seasonal = list(order = c(0, 0, 1), period = 48))
+```
+
+I'm going to forecast 48 trading periods for 12 months
+```{r}
+forecast_SARIMA_1 <- forecast(SARIMA_model_Final, h = 17520)
+forecast_SARIMA <- ts(forecast_SARIMA_1$mean, start = c(2019, 1), frequency = 48)
+```
+
+### STL-ARIMA
+```{r}
+STL_ARIMA_FINAL <- stlm(train_val, s.window = "periodic", robust = TRUE,
+                         modelfunction = function(x) Arima(x, order = c(5, 1, 2)))
+```
+
+I'm going to forecast 48 trading periods for 12 months
+```{r}
+forecast_STL_ARIMA_1 <- forecast(STL_ARIMA_FINAL, h = 17520)
+forecast_STL_ARIMA <- ts(forecast_STL_ARIMA_1$mean, start = c(2019, 1), frequency = 48)
+```
+
+# Loading test data:
+```{r}
+csv_folder <- "2019"
+csv_files <- list.files(path = csv_folder, pattern = "*.csv", full.names = TRUE)
+
+test_data <- csv_files %>% lapply(read.csv) %>% bind_rows()
+test_data <- test_data[test_data$PointOfConnection == "ABY0111", ]
+test_data <- test_data[order(test_data$TradingDate, test_data$TradingPeriod), ]
+test_data$TradingDate <- as.Date(test_data$TradingDate)
+
+```
+
+Because I removed daylight savings effected days from my training set then I am also going to remove these days from my test set. Daylight savings for 2019 starts on 2019-04-07
+
+```{r}
+ErrorIndices2 <- which(test_data$TradingPeriod > 48)
+test_data <- test_data[-ErrorIndices2, ]
+```
+
+```{r}
+test_data %>% mutate(test_data = as.Date(TradingDate)) %>% count(TradingDate) %>% filter(n < 48)
+```
+
+I'm going to use linear interpolation to fill in the 2 trading period gap for 2019-09-29
+```{r}
+# finding the row just before period 47 on 2019-09-29
+i_prev <- which(test_data$TradingDate == as.Date("2019-09-29") &
+                test_data$TradingPeriod == 46)
+
+# Computing the two interpolated values: 
+# Extracting the two known prices
+price_prev <- test_data$DollarsPerMegawattHour[i_prev]
+price_next <- test_data$DollarsPerMegawattHour[i_prev + 1]
+
+# runing approx() over the X = {46,49} → Y = {prev,next}, get Y at Xout = {47,48}
+interp <- approx(
+  x    = c(46, 49),
+  y    = c(price_prev, price_next),
+  xout = c(47, 48),
+  method = "linear"
+)
+
+# interp$x == c(47,48); interp$y == interpolated prices
+interp
+```
+
+```{r}
+new_rows <- tibble(
+  TradingDate             = as.Date("2019-09-29"),
+  TradingPeriod           = interp$x,
+  PointOfConnection       = "ABY0111",
+  DollarsPerMegawattHour  = interp$y
+)
+
+# bind back and re-sort
+test_data <- bind_rows(test_data, new_rows) %>%
+  arrange(TradingDate, TradingPeriod)
+
+# view the gap now filled
+filter(test_data,
+       TradingDate == as.Date("2019-09-29"),
+       TradingPeriod %in% 46:49)
+```
+
+Making it a time series object:
+```{r}
+price_vector2 <- as.numeric(test_data$DollarsPerMegawattHour)
+Test_time_series <- ts(price_vector2, start = c(2019, 1), frequency = 48)
+```
+
+Double checking the start date, frequency, and length of my time series object:
+```{r}
+start(Test_time_series)
+frequency(Test_time_series)
+length(Test_time_series)
+```
+
+# Overall Model Comparison
+```{r}
+ARIMA_312_acc <- accuracy(forecast_ARIMA_312, Test_time_series)
+ARIMA_411_acc <- accuracy(forecast_ARIMA_411, Test_time_series)
+SARIMA_acc <- accuracy(forecast_SARIMA, Test_time_series)
+STL_ARIMA_acc <- accuracy(forecast_STL_ARIMA, Test_time_series)
+```
+
+```{r}
+acc_list <- list(ARIMA312 = ARIMA_312_acc, ARIMA411 = ARIMA_411_acc, SARIMA = SARIMA_acc, 
+                  STL_ARIMA = STL_ARIMA_acc)
+
+acc_df <- map_df(acc_list2, ~ as.data.frame(.x)["Test set", ], .id = "Model")
+```
+
+Manually calculating the MASE values:
+```{r}
+# MAE of forecast errors
+mae_model <- mean(abs(Test_time_series - forecast_SARIMA))
+
+# Naive forecast (random walk with no drift)
+naive_forecast <- naive(train_val, h = length(Test_time_series))
+naive_forecast <- ts(naive_forecast$mean, start = c(2019, 1), frequency = 48)
+mae_naive <- mean(abs(Test_time_series - naive_forecast))
+
+# MASE = MAE(model) / MAE(naive)
+mase_SARIMA <- mae_model / mae_naive
+mase_SARIMA
+```
+
+```{r}
+mae_model <- mean(abs(Test_time_series - forecast_ARIMA_312))
+naive_forecast <- naive(train_val, h = length(Test_time_series))
+naive_forecast <- ts(naive_forecast$mean, start = c(2019, 1), frequency = 48)
+mae_naive <- mean(abs(Test_time_series - naive_forecast))
+mase_ARIMA3 <- mae_model / mae_naive
+mase_ARIMA3
+```
+
+```{r}
+mae_model <- mean(abs(Test_time_series - forecast_ARIMA_411))
+naive_forecast <- naive(train_val, h = length(Test_time_series))
+naive_forecast <- ts(naive_forecast$mean, start = c(2019, 1), frequency = 48)
+mae_naive <- mean(abs(Test_time_series - naive_forecast))
+mase_ARIMA4 <- mae_model / mae_naive
+mase_ARIMA4
+```
+
+```{r}
+mae_model <- mean(abs(Test_time_series - forecast_STL_ARIMA))
+naive_forecast <- naive(train_val, h = length(Test_time_series))
+naive_forecast <- ts(naive_forecast$mean, start = c(2019, 1), frequency = 48)
+mae_naive <- mean(abs(Test_time_series - naive_forecast))
+mase_STL <- mae_model / mae_naive
+mase_STL
+```
+
+```{r}
+acc_df <- acc_df %>% mutate(MASE = c(mase_ARIMA3, mase_ARIMA4, mase_SARIMA, mase_STL)) 
+
+acc_df %>% arrange(MASE)
+```
+
+The MASE for STL-ARIMA is 0.79 which means it outperforms a naive forecast (its errors are 21% smaller than a naive forecasts).
+
+
+## Plot
+```{r}
+start_time     <- as.POSIXct("2019-01-01 00:00:00", tz = "UTC")
+times_forecast <- seq(start_time, by = "30 min", length.out = 17520)
+
+Test_time_series2 <- ts(test_data$DollarsPerMegawattHour, frequency = 48, start = c(2019, 1))
+df_actual <- data.frame(Date = times_forecast, Value = as.numeric(Test_time_series2), Type = "Actual")
+
+forecast_raw_ARIMA_1_plot <- ts(forecast_SARIMA_1, start = c(2019, 1), frequency = 48)
+
+df_forecast <- data.frame(
+  Date  = times_forecast,
+  Mean  = as.numeric(forecast_raw_ARIMA_1_plot$mean),
+  Lower = as.numeric(forecast_raw_ARIMA_1_plot$lower[,2]),  # 95% lower bound
+  Upper = as.numeric(forecast_raw_ARIMA_1_plot$upper[,2]),  # 95% upper bound
+  Type  = "Forecast"
+)
+
+ggplot() +
+  geom_line(data = df_actual, aes(x = Date, y = Value, color = "Actual"), size = 0.55) +
+  geom_line(data = df_forecast, aes(x = Date, y = Mean, color = "Forecast"), size = 1, alpha = 0.8, linetype = "dashed") +
+  geom_ribbon(data = df_forecast, aes(x = Date, ymin = Lower, ymax = Upper), fill = "lightblue", alpha = 0.3) +
+  scale_color_manual(values = c("Actual" = "firebrick1", "Forecast" = "steelblue3")) +
+  scale_x_datetime(date_breaks = "1 month",  date_labels = "%B",  expand = c(0, 0), guide = guide_axis(n.dodge = 2)) +
+  labs(title = paste("SArima", " Forecast vs Actual Prices for ", 2019, sep = ""),
+       x = "Month", y = "Electricity Price", color = "Legend") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+# References and Citations
+
+Electricity Authority. (n.d.). Final energy prices by month [Dataset]. EMI – Electricity Market Information. Retrieved between July 11 and July 15, 2025, from
+https://www.emi.ea.govt.nz/Wholesale/Datasets/DispatchAndPricing/FinalEnergyPrices/ByMonth
+
+Electricity Authority. (n.d.). Generation output by plant [Dataset]. EMI – Electricity Market Information. Retrieved between July 18 and July 20, 2025, from
+https://www.emi.ea.govt.nz/Wholesale/Datasets/Generation/Generation_MD
