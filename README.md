@@ -266,8 +266,8 @@ I can see that across all models performances, the models that were trained on B
 # Final Model assessment on 2019 test data
 I forecast 48 trading periods for twelve months for my four models, ARIMA(3,1,2), SARIMA(3,1,1)(0,0,1), ARIMA(4,1,1), and STL-ARIMA(5,1,2).
 
-|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  | Theil's U| MASE |
-|-----------|------|--------|-------|----------|---------|-------|-------|----------|------|
+|           | ME        | RMSE   |      MAE | MPE | MAPE  | ACF1  | Theil's U| MASE |
+|-----------|-----------|--------|----------|----|------|-------|----------|------|
 STL_ARIMA    |13.78588	|60.12093|  40.47667|-Inf |	Inf|  0.8830884|  0|  0.7925502 |
 SARIMA       |12.33990	|60.54586|	40.76787|	-Inf|	Inf|	0.8847718|	0|	0.7982519 |
 ARIMA(3,1,2) | 12.63077	|60.60519|	40.81702|	-Inf|	Inf|	0.8847649|	0|	0.7992142 |
