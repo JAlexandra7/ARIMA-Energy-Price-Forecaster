@@ -199,34 +199,34 @@ I fitted seven ARIMA models, nine SARIMA models, eight STL-ARIMA models and four
 I made sure to apply an inverse Box-Cox transformation on the forescasts of all models fitted on a Box-Cox transformed time series to obtain interpretable electricity price predictions.
 
 ## ARIMA
-|           | ME   | RMSE   |   MAE | MPE     | MAPE    | MASE  | ACF1  |
-|-----------|------|--------|-------|----------|---------|-------|-------|
-ARIMA(3,1,1)  |4.25|	18.39|	13.12|	0.61|	15.29|	0.67|	0.65|	1.38 | 1
-ARIMA(4,1,1)    |4.25|	18.39|	13.12|	0.61|	15.29|	0.67|	0.65|	1.38  | 6
-ARIMA(3,1,2)  |4.24|	18.39|	13.12|	0.60|	15.29|	0.67|	0.65|	1.38  | 7
-ARIMA(4,1,2)  |4.33|	18.41|	13.13|	0.70|	15.28|	0.67|	0.65|	1.37	 | 8
-ARIMA(3,1,1) bc |16.20|	101.89|	53.38|	-2136.53|	2163.73|	NA|	0.91|	12.57| 2
-ARIMA(4,1,1) bc   |16.12|	101.87|	53.40|	-2138.74|	2165.90|	NA|	0.91|	12.58| 3
-ARIMA(3,1,2) bc   |16.12|	101.87|	53.40|	-2138.52|	2165.69|	NA|	0.91|	12.58 | 4
-ARIMA(4,1,2) bc   |16.13|	101.87|	53.40|	-2138.27|	2165.44|	NA|	0.91|	12.58 | 5
+|           | ME   | RMSE   |   MAE | MPE     | MAPE    | MASE  | ACF1  | Theil's U |
+|-----------|------|--------|-------|----------|---------|-------|-------|------|
+ARIMA(3,1,1)  |4.25|	18.39|	13.12|	0.61|	15.29|	0.67|	0.65|	1.38 |
+ARIMA(4,1,1)    |4.25|	18.39|	13.12|	0.61|	15.29|	0.67|	0.65|	1.38  |
+ARIMA(3,1,2)  |4.24|	18.39|	13.12|	0.60|	15.29|	0.67|	0.65|	1.38  |
+ARIMA(4,1,2)  |4.33|	18.41|	13.13|	0.70|	15.28|	0.67|	0.65|	1.37	 |
+ARIMA(3,1,1) bc |16.20|	101.89|	53.38|	-2136.53|	2163.73|	NA|	0.91|	12.57|
+ARIMA(4,1,1) bc   |16.12|	101.87|	53.40|	-2138.74|	2165.90|	NA|	0.91|	12.58|
+ARIMA(3,1,2) bc   |16.12|	101.87|	53.40|	-2138.52|	2165.69|	NA|	0.91|	12.58 |
+ARIMA(4,1,2) bc   |16.13|	101.87|	53.40|	-2138.27|	2165.44|	NA|	0.91|	12.58 |
 
 I have fitted the models labeled "bc" on the BoxCox transformed time series. The rest of the models were fitted on the original time series. The first model is the original model I fitted prior to model refinement.
 
 The original model was outperformed by ARIMA(411) and ARIMA(312).
 
 ## SARIMA
-|           | ME   | RMSE   |   MAE | MPE     | MAPE    | MASE  | ACF1  |
-|-----------|------|--------|-------|----------|---------|-------|-------|
-ARIMA(3,1,1)(0,0,1)    |6.67	|19.18	|13.62	|3.44	|15.51	|0.70	|0.65|	1.38  | 1
-ARIMA(3,1,1)(0,0,2)    |82.00|	83.93|	82.00| 92.76|	92.76|	164.82|	0.65|	5.99 | 10
-ARIMA(3,1,2)(0,0,1)    |82.01|	83.94|	82.01| 92.77|	92.77|	164.84|	0.65|	5.99 | 8
-ARIMA(4,1,2)(0,0,1)    |82.01|	83.94|	82.01| 92.77|	92.77|	164.84|	0.65|	5.99 | 9
-ARIMA(4,1,1)(0,0,1)    |82.01|	83.94|	82.01| 92.77|	92.77|	164.85|	0.65|	5.99 | 7
-ARIMA(3,1,1)(0,0,1) bc |17.04|	102.02|	53.15| -2114.40	|2142.05|NA|	0.91|	12.44 | 2
-ARIMA(4,1,1)(0,0,1) bc |16.89|	102.00|	53.19| -2118.25	|2145.82|	NA|	0.91|	12.46 | 3
-ARIMA(3,1,2)(0,0,1) bc |16.95|	102.01|	53.17| -2116.61	|2144.21|	NA|	0.91|	12.45 | 4
-ARIMA(4,1,2)(0,0,1) bc |16.94|	102.01|	53.17| -2117.04	|2144.64|	NA|	0.91	|12.46 | 5
-ARIMA(3,1,1)(0,0,2) bc |17.29|	102.06|	53.08| -2107.70	|2135.49|	NA|	0.91|	12.40 | 6
+|           | ME   | RMSE   |   MAE | MPE     | MAPE    | MASE  | ACF1  | Theil's U |
+|-----------|------|--------|-------|----------|---------|-------|-------|-------|
+ARIMA(3,1,1)(0,0,1)    |6.67	|19.18	|13.62	|3.44	|15.51	|0.70	|0.65|	1.38  |
+ARIMA(3,1,1)(0,0,2)    |82.00|	83.93|	82.00| 92.76|	92.76|	164.82|	0.65|	5.99 |
+ARIMA(3,1,2)(0,0,1)    |82.01|	83.94|	82.01| 92.77|	92.77|	164.84|	0.65|	5.99 |
+ARIMA(4,1,2)(0,0,1)    |82.01|	83.94|	82.01| 92.77|	92.77|	164.84|	0.65|	5.99 |
+ARIMA(4,1,1)(0,0,1)    |82.01|	83.94|	82.01| 92.77|	92.77|	164.85|	0.65|	5.99 |
+ARIMA(3,1,1)(0,0,1) bc |17.04|	102.02|	53.15| -2114.40	|2142.05|NA|	0.91|	12.44 |
+ARIMA(4,1,1)(0,0,1) bc |16.89|	102.00|	53.19| -2118.25	|2145.82|	NA|	0.91|	12.46 |
+ARIMA(3,1,2)(0,0,1) bc |16.95|	102.01|	53.17| -2116.61	|2144.21|	NA|	0.91|	12.45 |
+ARIMA(4,1,2)(0,0,1) bc |16.94|	102.01|	53.17| -2117.04	|2144.64|	NA|	0.91	|12.46 |
+ARIMA(3,1,1)(0,0,2) bc |17.29|	102.06|	53.08| -2107.70	|2135.49|	NA|	0.91|	12.40 |
 
 I have fitted the models labeled "bc" on the BoxCox transformed time series. The rest of the models were fitted on the original time series. The first model is the original model I fitted prior to model refinement.
 
@@ -261,7 +261,7 @@ I have fitted the models labeled "bc" on the BoxCox transformed time series. The
 
 The original model performed best on every metric.
 
-I can see that across all models performances, the models that were trained on BoxCox transformed time series performed the worst.
+I can see that across all models performances on the validation set, the models that were trained on BoxCox transformed time series performed worse than models that were trained on the original time series.
 
 # Final Model assessment on 2019 test data
 I forecast 48 trading periods for twelve months for my four models, ARIMA(3,1,2), SARIMA(3,1,1)(0,0,1), ARIMA(4,1,1), and STL-ARIMA(5,1,2).
