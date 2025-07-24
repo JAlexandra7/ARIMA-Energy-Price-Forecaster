@@ -192,7 +192,7 @@ I applied a BoxCox transformation to the time series to fix the non-constant var
 
 I increased the AR and MA terms of the model to capture the remaining autocorrelation.
 
-I fitted seven ARIMA models, nine SARIMA models, eight STL-ARIMA models and four ARIMAX models.
+I fitted seven ARIMA models, nine SARIMA models, eight STL-ARIMA models and seven ARIMAX models.
 
 # Refined models performance on Validation set
 
@@ -252,10 +252,13 @@ The original model was outperformed by the STL-ARIMA(5,1,2) model (which had its
 |           | ME   | RMSE   |   MAE | MPE     | MAPE    | MASE  | ACF1  | Theil's U |
 |-----------|------|--------|-------|----------|---------|-------|-------|-|
 ARIMAX(2,1,2)(0,0,1)    |7.96  | 20.78  |	15.85	| 4.93     |18.09	   | 0.81	 | 0.68 | 1.50  |
-ARIMAX(2,1,2)(0,0,1) bc |13.99 | 98.68	| 51.55	| -2260.97 | 2286.05 | NA	 |  0.90| 13.26  |
-ARIMAX(3,1,2)(0,0,1) bc |15.13  | 99.07	| 51.25	| -2213.46| 2239.04	 | NA | 0.90|	12.98 |
-ARIMAX(2,1,3)(0,0,1) bc |14.23 | 98.93	| 51.65	|-2237.04	   | 2262.31	 | NA	|  0.90| 13.11	 |
-ARIMAX(3,1,3)(0,0,1) bc |14.46 | 98.63 | 51.19 |	-2251.19 | 2276.35 |	NA	|  0.90| 13.21	 |
+ARIMAX(3,1,2)(0,0,1)    |8.11  | 20.83  |	15.87	| 5.11     |18.09	   | 0.81	 | 0.68 | 1.50  |
+ARIMAX(3,1,3)(0,0,1)    |8.24  | 20.86  |	15.88	| 5.26     |18.07	   | 0.81	 | 0.67 | 1.50  |
+ARIMAX(2,1,3)(0,0,1)    |8.26  | 20.87  |	15.88	| 5.28     |18.07	   | 0.81	 | 0.67 | 1.50  |
+ARIMAX(2,1,2)(0,0,1) bc |13.99 | 98.68	| 51.55	| -2260.97 | 2286.05 | NA	   |  0.90| 13.26 |
+ARIMAX(3,1,2)(0,0,1) bc |15.13 | 99.07	| 51.25	| -2213.46 | 2239.04 | NA    | 0.90 |	12.98 |
+ARIMAX(2,1,3)(0,0,1) bc |14.23 | 98.93	| 51.65	|-2237.04	 | 2262.31 | NA	   |  0.90| 13.11	|
+ARIMAX(3,1,3)(0,0,1) bc |14.46 | 98.63 | 51.19  |	-2251.19 | 2276.35 |	NA	 |  0.90| 13.21	|
 
 I have fitted the models labeled "bc" on the BoxCox transformed time series. The rest of the models were fitted on the original time series. I have used the same xreg (contianing Season, Energy_generation and Is_weekend) for all the models. The first model is the original model I fitted prior to model refinement.
 
