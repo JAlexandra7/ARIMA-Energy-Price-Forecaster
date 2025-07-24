@@ -128,7 +128,7 @@ I then compared it to my original ARIMAX model.
 
 I obtained the following accuracy metrics by forecasting the energy prices for 2018 and comparing them against the actual 2018 values for each model:
 
-| Model       | ME   | RMSE   | MAE   |  MAPE |  MAPE | MASE  | ACF1   | Theil's U |
+| Model       | ME   | RMSE   | MAE   |  MPE |  MAPE | MASE  | ACF1   | Theil's U |
 |-------------|------|--------|-------|-------|-------|-------|--------|-----------|
 ARIMA         |4.25  | 18.39  |	13.12	| 0.61	| 15.29	| 0.67	| 0.65   | 1.38      |
 SARIMA        |6.67	 | 19.18  |	13.62	| 3.44	| 15.51	| 0.70	| 0.65   | 1.38      |
