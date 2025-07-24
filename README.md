@@ -199,7 +199,7 @@ I fitted seven ARIMA models, nine SARIMA models, eight STL-ARIMA models and four
 I made sure to apply an inverse Box-Cox transformation on the forescasts of all models fitted on a Box-Cox transformed time series to obtain interpretable electricity price predictions.
 
 ## ARIMA
-|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  |
+|           | ME   | RMSE   |   MAE | MPE     | MAPE    | MASE  | ACF1  |
 |-----------|------|--------|-------|----------|---------|-------|-------|
 ARIMA(3,1,1)  |4.25|	18.39|	13.12|	0.61|	15.29|	0.67|	0.65|	1.38 | 1
 ARIMA(4,1,1)    |4.25|	18.39|	13.12|	0.61|	15.29|	0.67|	0.65|	1.38  | 6
@@ -215,7 +215,7 @@ I have fitted the models labeled "bc" on the BoxCox transformed time series. The
 The original model was outperformed by ARIMA(411) and ARIMA(312).
 
 ## SARIMA
-|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  |
+|           | ME   | RMSE   |   MAE | MPE     | MAPE    | MASE  | ACF1  |
 |-----------|------|--------|-------|----------|---------|-------|-------|
 ARIMA(3,1,1)(0,0,1)    |6.67	|19.18	|13.62	|3.44	|15.51	|0.70	|0.65|	1.38  | 1
 ARIMA(3,1,1)(0,0,2)    |82.00|	83.93|	82.00| 92.76|	92.76|	164.82|	0.65|	5.99 | 10
@@ -233,7 +233,7 @@ I have fitted the models labeled "bc" on the BoxCox transformed time series. The
 The original SARIMA model performed best across all accuracy metrics.
 
 ## STL-ARIMA
-|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  | Theil's U |
+|           | ME   | RMSE   |   MAE | MPE     | MAPE    | MASE  | ACF1  | Theil's U |
 |-----------|------|--------|-------|----------|---------|-------|-------|-----------|
 STL-ARIMA(5,1,1)    |4.77	 |19.75	|14.85  |	0.96	|17.52	|0.76|	0.69	|1.52|
 STL-ARIMA(5,1,2)    |4.68  |19.76	|14.89	|0.86	|17.59|	0.76	|0.69|	1.52|
@@ -249,7 +249,7 @@ I have fitted the models labeled "bc" on the BoxCox transformed time series. The
 The original model was outperformed by the STL-ARIMA(5,1,2) model (which had its MA term increased by one).
 
 ## ARIMAX
-|           | ME   | RMSE   |   MAE | MAPE     | MAPE    | MASE  | ACF1  | Theil's U |
+|           | ME   | RMSE   |   MAE | MPE     | MAPE    | MASE  | ACF1  | Theil's U |
 |-----------|------|--------|-------|----------|---------|-------|-------|-|
 ARIMAX(2,1,2)(0,0,1)    |7.96  | 20.78  |	15.85	| 4.93     |18.09	   | 0.81	 | 0.68 | 1.50  |
 ARIMAX(2,1,2)(0,0,1) bc |13.99 | 98.68	| 51.55	| -2260.97 | 2286.05 | NA	 |  0.90| 13.26  |
