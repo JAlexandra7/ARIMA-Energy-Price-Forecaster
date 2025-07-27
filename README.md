@@ -276,12 +276,31 @@ SARIMA       |12.33990	|60.54586|	40.76787|	-Inf|	Inf|	0.8847718|	0|	0.7982519 |
 ARIMA(3,1,2) | 12.63077	|60.60519|	40.81702|	-Inf|	Inf|	0.8847649|	0|	0.7992142 |
 ARIMA(4,1,1) | 13.19299	|60.72503|	40.91860|	-Inf|	Inf|	0.8847659|	0|	0.8012033 |
 
-The MASE for STL-ARIMA(5,1,2) is 0.79 which means it outperforms a naive forecast (its errors are 21% smaller than a naive forecasts).
+The STL-ARIMA model had the best RMSE, MAE and MASE. The STL-ARIMA model had the lowest ACF1 which means that, compared to the other models, it captured the most autocorrelation present in the data. However since the STL-ARIMA models ACF1 is still much higher than 0, then there is still uncaptured autocorrelation in the data.
 
-The STL-ARIMA(5,1,2) model has the best MASE.
+The SARIMA model had the best mean error (ME).
+
+The MASE for all of the models is less than 1, which means that all of the models outperform a naive forecast.
+
+The MASE for STL-ARIMA(5,1,2) is 0.79 which means that its errors are 21% smaller than a naive forecasts.
+
+The models mean error was 13.78 which means on average its forecasts overestimate actual prices by about 13.78 dollars per megawatt hour.
+
+The models root mean square error was 60.12 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value is probably due to how volatile the data is.
+
+The models mean absolute error was 40.47 which means that forecasts were off by 40.47 units on average. This is 37.21% of the annual mean, the mean energy price for 2019 was 108.749, so the mean absolute error is quite high (even when considering how volatile the data is). There is alot of room for improvement in regards to the models accuracy.
 
 # Conclusion
+
+My research question was "Which time series model most accurately predicts 2019 energy prices, using historical energy price data from 2017 and 2018?"
+
+My hypothesis was that an ARIMA model would outperform the more complex models in predicting 2019 energy prices using 2017 and 2018 data.
+
 My hypothesis was proven incorrect, the STL-ARIMA model outperformed a simple ARIMA model.
+
+To further this project, I could have used more than one point of connection for energy price modelling.
+
+I found that the energy prices for 2017 to 2019 were extremely volatile, non-normal, and non-stationary.
 
 # References and Citations
 
