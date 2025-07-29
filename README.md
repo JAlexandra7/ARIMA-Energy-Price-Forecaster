@@ -4,6 +4,8 @@ Forecasted New Zealand energy prices using one year of half hourly data from the
 
 The ARIMA(3,1,1) model, trained on the energy price data from 2017, demonstrated the highest performance on the 2018 validation set across the ME, RMSE, MAE, MPE, MAPE, and MASE evaluation metrics.
 
+The STL-ARIMA(5,1,2) model, trained on both the 2017 and 2018 energy price data, had the highest performance on the 2019 test set on the RMSE, MAE and MASE performance metrics.
+
 This project was made using RStudio.
 
 ## Purpose: 
