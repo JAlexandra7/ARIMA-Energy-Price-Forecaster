@@ -291,6 +291,8 @@ The models root mean square error was 59.24 which indicates large forecast error
 
 The models mean absolute error was 40.42 which means that forecasts were off by 40.42 units on average. This is 37.16% of the annual mean energy price, which was 108.749 in 2019. The mean absolute error is relatively high, even when considering how volatile the data is. There is alot of room for improvement in the models accuracy.
 
+![Alt](Images/23.png)
+
 # Conclusion
 
 My research question was "Which time series model most accurately predicts 2019 energy prices, using historical energy price data from 2017 and 2018?"
