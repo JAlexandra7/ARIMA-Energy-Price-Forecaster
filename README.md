@@ -1,6 +1,6 @@
 # ARIMA-Energy-Price-Forecaster
 ## Summary
-Forecasted New Zealand energy prices using one year of half hourly data from the New Zealand Electricity Authority. Conducted stationarity diagnostics and applied first-order differencing to stabilize the series. Performed autocorrelation and partial autocorrelation analysis to inform model development. Built and evaluated five forecasting models ARIMA, SARIMA, STL-ARIMA, ARIMAX, and ARIMA-GARCH. Compared model performance using forecast accuracy metrics including ME, MAE, and RMSE.
+Forecasted New Zealand energy prices using one year of half hourly data from the New Zealand Electricity Authority. Conducted stationarity diagnostics and applied first-order differencing to stabilize the series. Performed autocorrelation and partial autocorrelation analysis to inform model development. Built and evaluated five forecasting models ARIMA, SARIMA, STL-ARIMA, SARIMAX, and ARIMA-GARCH. Compared model performance using forecast accuracy metrics including ME, MAE, and RMSE.
 
 The ARIMA(3,1,1) model, trained on the energy price data from 2017, demonstrated the highest performance on the 2018 validation set across the ME, RMSE, MAE, MPE, MAPE, and MASE evaluation metrics.
 
@@ -114,8 +114,8 @@ I used auto.arima with first order differencing to find suitable ARIMA and SARIM
 
 For STL-ARIMA(5,1,1) I enabled robust fitting for the model (robust = TRUE) to make it more resistant to outliers. The weighting function reduced the influence of outliers, causing most outliers to be captured in the remainder component. As a result, the trend and seasonal patterns are be preserved and more accurately reflected the underlying structure of the time series.
 
-For the ARIMAX model I feature engineered three variables. Energy generation (gives the total energy generated for each trading period and date), Season (which gives the season for each observation) which was turned into three dummy variables (note that the dummy variable for autumn was dropped to avoid the dummy variable trap), and Is_Weeked (Which states whether any observation was on a weekday or a weekend).
-The ARIMAX model is a regression framework with ARIMA(2,1,2)(0,0,1)[48] errors, where the exogenous variables explain variation in the response and the residuals follow a seasonal ARIMA process.
+For the SARIMAX model I feature engineered three variables. Energy generation (gives the total energy generated for each trading period and date), Season (which gives the season for each observation) which was turned into three dummy variables (note that the dummy variable for autumn was dropped to avoid the dummy variable trap), and Is_Weeked (Which states whether any observation was on a weekday or a weekend).
+The SARIMAX model is a regression framework with ARIMA(2,1,2)(0,0,1)[48] errors, where the exogenous variables explain variation in the response and the residuals follow a seasonal ARIMA process.
 
 To identify the best ARIMA-GARCH model, I first evaluated which distribution (out of norm, ged, std, snorm, sstd) best fit the data by looking at kernel density plots. Then I made and used a grid search function that fit 108 different models combinations, varying the AR, MA, ARCH (p), and GARCH (q) orders across four volatility frameworks: sGARCH, fGARCH, and iGARCH. The best model was the ARMA(1,0) fiGARCH(1,1) model with the lowest AIC, BIC, Shibata and Hannan-Quinn.
 
@@ -125,8 +125,8 @@ All of the models were trained on a time series containing 12 months of half hou
 
 The future xreg variable Energy Generation was forecasted using an ARIMA(3,0,1)(1,1,0)[48] with drift model rather than using the actual energy generation values. This was done because the actual values of energy generation won't be known ahead of time for forecasting, so I will need to estimate the values of this variable for testing and any real world usage. The model is ARIMA(2,1,2)(0,0,1)[48] errors.
 
-I wanted to understand the models sensitivity to inaccurate energy generation values, to do this I made an additional ARIMAX model where the only difference was that Energy_Generation contained its real values.
-I then compared it to my original ARIMAX model.
+I wanted to understand the models sensitivity to inaccurate energy generation values, to do this I made an additional SARIMAX model where the only difference was that Energy_Generation contained its real values.
+I then compared it to my original SARIMAX model.
 
 I obtained the following accuracy metrics by forecasting the energy prices for 2018 and comparing them against the actual 2018 values for each model:
 
@@ -135,8 +135,8 @@ I obtained the following accuracy metrics by forecasting the energy prices for 2
 ARIMA         |4.25  | 18.39  |	13.12	| 0.61	| 15.29	| 0.67	| 0.65   | 1.38      |
 SARIMA        |6.67	 | 19.18  |	13.62	| 3.44	| 15.51	| 0.70	| 0.65   | 1.38      |
 STL_ARIMA     |4.65  |	19.77	| 14.90	| 0.82	| 17.62	| 0.76	| 0.69	 | 1.53      |
-ARIMAX_2      |7.96  |	20.78	| 15.85	| 4.93	| 18.09	| 0.81	| 0.68   | 1.50      |
-ARIMAX        |7.80  |	20.67	| 15.88	| 4.79	| 18.08	| 0.81	| 0.67   | 1.47      |
+SARIMAX_2      |7.96  |	20.78	| 15.85	| 4.93	| 18.09	| 0.81	| 0.68   | 1.50      |
+SARIMAX        |7.80  |	20.67	| 15.88	| 4.79	| 18.08	| 0.81	| 0.67   | 1.47      |
 ARIMA-fiGARCH |26.97 | 104.26	| 51.42	| -1855.52 | 1889.67 | 6.34 | 0.91 | 10.95   |
 
 The ARIMA model has the best ME, RMSE, MAE, MPE, MAPE, MASE and Theil's U. It had the second best ACF1. ARIMA was the most accurate forecasting model.
@@ -145,7 +145,7 @@ The worst model was the ARIMA-GARCH model with the worst performance on every me
 
 SARIMA and STL-ARIMA had similar performance with SARIMA having a slightly lower value for most metrics. STL-ARIMA had the lower values for ME and MPE though.
 
-The ARIMAX model (labeled ARIMAX_model2) with the forecasted energy generation variable in its xreg, performed similarly to ARIMAX with the actual values for energy generation in its xreg. There is an average difference of 0.05 between the performances. This tells me that the use of an estimated Energy_generation variable does not harm model performance significantly.
+The SARIMAX model (labeled SARIMAX_model2) with the forecasted energy generation variable in its xreg, performed similarly to SARIMAX with the actual values for energy generation in its xreg. There is an average difference of 0.05 between the performances. This tells me that the use of an estimated Energy_generation variable does not harm model performance significantly.
 
 All models have ACF1 values of 0.65 or larger indicating a strong positive autocorrelation at lag 1, this suggests that every model fitted has not yet captured all autocorrelation in the time series. Ideally, residuals should resemble white noise (where ACF1 approximately equals 0). During model refinement I will try adding more AR and MA terms to try and capture this autocorrelation. I will also reassess the differencing order to see if the series needs further transformation.
 
@@ -194,7 +194,7 @@ I applied a BoxCox transformation to the time series to fix the non-constant var
 
 I increased the AR and MA terms of the model to capture the remaining autocorrelation.
 
-I fitted seven ARIMA models, nine SARIMA models, eight STL-ARIMA models and seven ARIMAX models.
+I fitted seven ARIMA models, nine SARIMA models, eight STL-ARIMA models and seven SARIMAX models.
 
 # Refined models performance on Validation set
 
@@ -250,17 +250,17 @@ I have fitted the models labeled "bc" on the BoxCox transformed time series. The
 
 The original model was outperformed by the STL-ARIMA(5,1,2) model (which had its MA term increased by one).
 
-## ARIMAX
+## SARIMAX
 |           | ME   | RMSE   |   MAE | MPE     | MAPE    | MASE  | ACF1  | Theil's U |
 |-----------|------|--------|-------|----------|---------|-------|-------|-|
-ARIMAX(2,1,2)(0,0,1)    |7.96  | 20.78  |	15.85	| 4.93     |18.09	   | 0.81	 | 0.68 | 1.50  |
-ARIMAX(3,1,2)(0,0,1)    |8.11  | 20.83  |	15.87	| 5.11     |18.09	   | 0.81	 | 0.68 | 1.50  |
-ARIMAX(3,1,3)(0,0,1)    |8.24  | 20.86  |	15.88	| 5.26     |18.07	   | 0.81	 | 0.67 | 1.50  |
-ARIMAX(2,1,3)(0,0,1)    |8.26  | 20.87  |	15.88	| 5.28     |18.07	   | 0.81	 | 0.67 | 1.50  |
-ARIMAX(2,1,2)(0,0,1) bc |13.99 | 98.68	| 51.55	| -2260.97 | 2286.05 | NA	   |  0.90| 13.26 |
-ARIMAX(3,1,2)(0,0,1) bc |15.13 | 99.07	| 51.25	| -2213.46 | 2239.04 | NA    | 0.90 |	12.98 |
-ARIMAX(2,1,3)(0,0,1) bc |14.23 | 98.93	| 51.65	|-2237.04	 | 2262.31 | NA	   |  0.90| 13.11	|
-ARIMAX(3,1,3)(0,0,1) bc |14.46 | 98.63 | 51.19  |	-2251.19 | 2276.35 |	NA	 |  0.90| 13.21	|
+SARIMAX(2,1,2)(0,0,1)    |7.96  | 20.78  |	15.85	| 4.93     |18.09	   | 0.81	 | 0.68 | 1.50  |
+SARIMAX(3,1,2)(0,0,1)    |8.11  | 20.83  |	15.87	| 5.11     |18.09	   | 0.81	 | 0.68 | 1.50  |
+SARIMAX(3,1,3)(0,0,1)    |8.24  | 20.86  |	15.88	| 5.26     |18.07	   | 0.81	 | 0.67 | 1.50  |
+SARIMAX(2,1,3)(0,0,1)    |8.26  | 20.87  |	15.88	| 5.28     |18.07	   | 0.81	 | 0.67 | 1.50  |
+SARIMAX(2,1,2)(0,0,1) bc |13.99 | 98.68	| 51.55	| -2260.97 | 2286.05 | NA	   |  0.90| 13.26 |
+SARIMAX(3,1,2)(0,0,1) bc |15.13 | 99.07	| 51.25	| -2213.46 | 2239.04 | NA    | 0.90 |	12.98 |
+SARIMAX(2,1,3)(0,0,1) bc |14.23 | 98.93	| 51.65	|-2237.04	 | 2262.31 | NA	   |  0.90| 13.11	|
+SARIMAX(3,1,3)(0,0,1) bc |14.46 | 98.63 | 51.19  |	-2251.19 | 2276.35 |	NA	 |  0.90| 13.21	|
 
 I have fitted the models labeled "bc" on the BoxCox transformed time series. The rest of the models were fitted on the original time series. I have used the same xreg (contianing Season, Energy_generation and Is_weekend) for all the models. The first model is the original model I fitted prior to model refinement.
 
@@ -271,26 +271,25 @@ I can see that across all models performances on the validation set, the models 
 # Final Model assessment on 2019 test data
 I forecast 48 trading periods for twelve months for my four models, ARIMA(3,1,2), SARIMA(3,1,1)(0,0,1), ARIMA(4,1,1), and STL-ARIMA(5,1,2).
 
-|           | ME        | RMSE   |      MAE | MPE | MAPE  | ACF1  | Theil's U| MASE |
-|-----------|-----------|--------|----------|----|------|-------|----------|------|
-STL_ARIMA    |13.78588	|60.12093|  40.47667|-Inf |	Inf|  0.8830884|  0|  0.7925502 |
-SARIMA       |12.33990	|60.54586|	40.76787|	-Inf|	Inf|	0.8847718|	0|	0.7982519 |
-ARIMA(3,1,2) | 12.63077	|60.60519|	40.81702|	-Inf|	Inf|	0.8847649|	0|	0.7992142 |
-ARIMA(4,1,1) | 13.19299	|60.72503|	40.91860|	-Inf|	Inf|	0.8847659|	0|	0.8012033 |
+|            | ME       | RMSE   |      MAE | MPE | MAPE | ACF1  | Theil's U| MASE   |
+|------------|----------|--------|----------|-----|------|-------|----------|--------|
+SARIMAX      | 11.2403	|59.2407 |	40.4201	|-Inf	| Inf  | 0.8811|	0.4783	| 0.7914 |
+STL_ARIMA    | 13.7859	|60.1209 |  40.4767 |-Inf |	Inf  | 0.8831|  0.4854  | 0.7926 |
+SARIMA       | 12.3399	|60.5459 |	40.7679 |	-Inf|	Inf  | 0.8848|	0.4888  |	0.7983 |
+ARIMA(3,1,2) | 12.6308	|60.6052 |	40.8170 |	-Inf|	Inf  | 0.8848|	0.4893  |	0.7992 |
+ARIMA(4,1,1) | 13.1930	|60.7250 |	40.9186 |	-Inf|	Inf  | 0.8848|	0.4903  |	0.8012 |
 
-The STL-ARIMA model had the best RMSE, MAE and MASE. The STL-ARIMA model had the lowest ACF1 which means that, compared to the other models, it captured the most autocorrelation present in the data. However since the STL-ARIMA models ACF1 is still much higher than 0, then there is still uncaptured autocorrelation in the data.
-
-The SARIMA model had the best mean error (ME).
+The SARIMAX model had the best ME, RMSE, MAE, Theil's U and MASE. The SARIMAX model had the lowest ACF1 which means that, compared to the other models, it captured the most autocorrelation present in the data. However since the SARIMAX models ACF1 is still much higher than 0, then there is still uncaptured autocorrelation in the data.
 
 The MASE for all of the models is less than 1, which means that all of the models outperform a naive forecast.
 
-The MASE for STL-ARIMA(5,1,2) is 0.79 which means that its errors are 21% smaller than a naive forecasts.
+The MASE for SARIMAX(2,1,2)(0,0,1)[48] is 0.79 which means that its errors are 21% smaller than a naive forecasts. With a Theil’s U of 0.4783, the model’s forecast error is less than half that of a naive model, indicating strong predictive power.
 
-The models mean error was 13.78 which means on average its forecasts overestimate actual prices by about 13.78 dollars per megawatt hour.
+The models mean error was 11.24 which means on average its forecasts overestimate actual prices by about 11.24 dollars per megawatt hour.
 
-The models root mean square error was 60.12 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value is probably due to how volatile the data is.
+The models root mean square error was 59.24 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value is probably due to how volatile the data is.
 
-The models mean absolute error was 40.47 which means that forecasts were off by 40.47 units on average. This is 37.21% of the annual mean, the mean energy price for 2019 was 108.749, so the mean absolute error is quite high (even when considering how volatile the data is). There is alot of room for improvement in regards to the models accuracy.
+The models mean absolute error was 40.42 which means that forecasts were off by 40.42 units on average. This is 37.16% of the annual mean energy price, which was 108.749 in 2019. The mean absolute error is relatively high, even when considering how volatile the data is. There is alot of room for improvement in the models accuracy.
 
 # Conclusion
 
@@ -298,7 +297,7 @@ My research question was "Which time series model most accurately predicts 2019 
 
 My hypothesis was that an ARIMA model would outperform the more complex models in predicting 2019 energy prices using 2017 and 2018 data.
 
-My hypothesis was proven incorrect, the STL-ARIMA model outperformed a simple ARIMA model.
+My hypothesis was proven incorrect, the SARIMAX model outperformed a simple ARIMA model.
 
 To further this project, I could have used more than one point of connection for energy price modelling.
 
