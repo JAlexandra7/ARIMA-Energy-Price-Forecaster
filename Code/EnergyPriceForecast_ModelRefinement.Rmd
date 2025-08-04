@@ -1,6 +1,6 @@
 ---
 title: "2nd half of project"
-author: "Juliet Alexandra"
+author: "JAlexandra"
 date: "2025-07-17"
 output: pdf_document
 ---
@@ -867,5 +867,6 @@ https://www.emi.ea.govt.nz/Wholesale/Datasets/DispatchAndPricing/FinalEnergyPric
 
 Electricity Authority. (n.d.). Generation output by plant [Dataset]. EMI – Electricity Market Information. Retrieved between July 18 and July 20, 2025, from
 https://www.emi.ea.govt.nz/Wholesale/Datasets/Generation/Generation_MD
+
 
 ...
