@@ -40,14 +40,12 @@ set.seed(48)
 
 # Loading models and datasets
 ```{r}
-ARIMA_model1 <- readRDS("Models/arima_model.rds")
-ARIMAX_model2 <- readRDS("Models/arima_with_xreg.rds")
-ARIMAX_model1 <- readRDS("Models/arimax_model.rds")
-Energy_generation_model <- readRDS("Models/Energy_generation_model.rds")
-GARCH_model <- readRDS("Models/garch_model.rds")
-SARIMA_model1 <- readRDS("Models/sarima_model.rds")
-STL_ARIMA_model1 <- readRDS("Models/stl_arima_model.rds")
-
+ARIMA_model1 <- readRDS("Models/Initial models from training/arima_model.rds")
+SARIMAX_model2 <- readRDS("Models/Initial models from training/arima_with_xreg.rds")
+SARIMAX_model1 <- readRDS("Models/Initial models from training/SARIMAX_model.rds")
+GARCH_model <- readRDS("Models/Initial models from training/garch_model.rds")
+SARIMA_model1 <- readRDS("Models/Initial models from training/sarima_model.rds")
+STL_ARIMA_model1 <- readRDS("Models/Initial models from training/stl_arima_model.rds")
 ```
 
 ```{r}
@@ -68,6 +66,15 @@ xreg_future <- as.matrix(xreg_future)
 time_series_data <- ts(time_series_data$Value, start = c(2017, 1), frequency = 48)
 Val_time_series <- ts(Val_time_series$Value, start = c(2018, 1), frequency = 48)
 First_order_diff <- diff(time_series_data)
+```
+
+```{r}
+csv_files_2017 <- list.files(path = "2017", pattern = "*.csv", full.names = TRUE) %>% lapply(read.csv) %>% bind_rows()
+csv_files_2018 <- list.files(path = "2018", pattern = "*.csv", full.names = TRUE) %>% lapply(read.csv) %>% bind_rows()
+
+df_2017_2018 <- rbind(csv_files_2017, csv_files_2018)
+df_2017_2018 <- df_2017_2018[df_2017_2018$PointOfConnection == "ABY0111", ]
+df_2017_2018 <- df_2017_2018[order(df_2017_2018$TradingDate, df_2017_2018$TradingPeriod), ]
 ```
 
 # Combining the training and test sets
@@ -131,6 +138,161 @@ I'm going to forecast 48 trading periods for 12 months
 ```{r}
 forecast_STL_ARIMA_1 <- forecast(STL_ARIMA_FINAL, h = 17520)
 forecast_STL_ARIMA <- ts(forecast_STL_ARIMA_1$mean, start = c(2019, 1), frequency = 48)
+```
+
+## SARIMAX
+Making the xreg for the 2017 and 2018 data:
+```{r}
+csv_files <- list.files(path = "Energy Generation", pattern = "*.csv", full.names = TRUE)
+csv_files2018 <- list.files(path = "Energy Generation - 2018", pattern = "*.csv", full.names = TRUE)
+
+Generation_2017 <- csv_files %>% lapply(read.csv) %>% bind_rows()
+Generation_2018 <- csv_files2018 %>% lapply(read.csv) %>% bind_rows()
+Generation <- rbind(Generation_2017, Generation_2018)
+head(Generation)
+
+Generation_Overall_Output <- Generation[, -c(56, 57)] %>%
+  pivot_longer(cols = matches("^TP\\d+$"), names_to = "TradingPeriod", 
+               names_prefix = "TP", values_to = "Energy_output") %>% 
+  mutate(TradingPeriod = as.integer(TradingPeriod), Trading_date = as.Date(Trading_date)) %>%
+  group_by(Trading_date, TradingPeriod) %>%
+  summarise(Energy_output = sum(Energy_output, na.rm = TRUE), .groups = "drop")
+```
+
+```{r}
+any(Generation_Overall_Output$Energy_output == 0)
+which(Generation_Overall_Output$Energy_output == 0)
+```
+There are four  rows where there is no energy output.
+
+This lack of energy output is due to daylight savings. There is one less hour in the day and as a result no energy output is recorded for the lost hour.
+
+```{r}
+Generation_Overall_Output[c(12815, 12816, 30623, 30624), ]
+```
+
+I'm going to use linear interpolation to fill the gap of energy output for these trading periods
+```{r}
+lin_interp <- function(Generation_Overall_Output, index_1, index_2){
+i_prev <- which(Generation_Overall_Output$Trading_date == as.Date("2017-09-24") &
+                Generation_Overall_Output$TradingPeriod == 46)
+
+price_prev <- Generation_Overall_Output$Energy_output[i_prev]
+price_next <- Generation_Overall_Output$Energy_output[i_prev + 1]
+
+interp <- approx(x = c(46, 49), y = c(price_prev, price_next), xout = c(47, 48), method = "linear")
+
+Generation_Overall_Output$Energy_output[index_1] <- interp$y[1]
+Generation_Overall_Output$Energy_output[index_2] <- interp$y[2]
+
+# Generation_Overall_Output[c(index_1, index_2), ]
+return(Generation_Overall_Output)
+}
+
+Generation_Overall_Output <- lin_interp(Generation_Overall_Output, 12815, 12816)
+Generation_Overall_Output <- lin_interp(Generation_Overall_Output, 30623, 30624)
+```
+
+Feature engineering:
+```{r}
+# Energy generation output
+Energy_generation <- Generation_Overall_Output$Energy_output / 1e6
+
+# Season:
+# I'm using meteorological season start dates (which are the same every year)
+# for simplicity and consistency
+get_season <- function(date) {
+  month_day <- format(as.Date(date), "%m-%d")
+  if (month_day >= "12-01" || month_day < "03-01") {
+    return("Summer")
+  } else if (month_day >= "03-01" && month_day < "06-01") {
+    return("Autumn")
+  } else if (month_day >= "06-01" && month_day < "09-01") {
+    return("Winter")
+  } else {
+    return("Spring")
+  }
+}
+
+seasons_df <- sapply(df_2017_2018$TradingDate, get_season)
+
+Season <- data.frame(
+  TradingPeriod = df_2017_2018$TradingDate,
+  Season = seasons_df
+)
+
+# Converting seasons to dummy variables (with one-hot encoding)
+Season_dummies <- model.matrix(~ Season, data = Season)[, -1]
+# dropped 1 season (autumn) to avoid the dummy variable trap
+
+# Weekend / Weekday variable: (1 is a weekend, 0 is a weekday)
+
+
+Is_Weekend <- ifelse(weekdays(as.Date(df_2017_2018$TradingDate)) %in% c("Saturday", "Sunday"), 1, 0)
+
+xreg <- cbind(Energy_generation, Season_dummies, Is_Weekend)
+```
+
+Note that energy generation was scaled down because if the regressors in xreg have very large values, it can cause numerical instability. These engineered variables make up my xreg matrix for SARIMAX.
+
+```{r}
+SARIMAX_FINAL <- Arima(train_val, order = c(2,1,2), seasonal = list(order = c(0, 0, 1), period = 48),
+                      xreg = xreg)
+```
+
+Forecasting the xreg for the 2019 data:
+
+#### Estimating xreg_future
+Estimating the Energy generation values.
+
+Model for forecasting Energy_generation values, note that a Box-Cox transformation has been applied to ensure all outputs are non-negative. This is done because a power plant cannot generate less than zero energy:
+
+```{r}
+ts_Energy <- ts(Energy_generation, start = c(2017, 1), frequency = 48)
+lambda <- BoxCox.lambda(ts_Energy)
+Energy_generation_bc <- BoxCox(ts_Energy, lambda)
+
+Energy_generation_model_2 <- Arima(Energy_generation_bc, order = c(3, 0, 1),
+                                   seasonal = list(order = c(1, 1, 0), period = 48),
+                                   include.drift = TRUE)
+
+fcast_bc <- forecast(Energy_generation_model_2, h = 17520)
+Energy_generation <- InvBoxCox(fcast_bc$mean, lambda)
+```
+
+
+```{r}
+# Encoding season and is_weekend for 2019 dates:
+
+# Creating a full sequence of dates for 2019
+dates <- seq.Date(as.Date("2019-01-01"), as.Date("2019-12-31"), by = "day")
+# Repeating each date for the 48 trading periods
+repeated_dates <- rep(dates, each = 48)
+
+seasons <- sapply(repeated_dates, get_season)
+
+Season <- data.frame(
+  Date = repeated_dates,
+  Season = seasons
+)
+
+# Converting seasons to dummy variables (with one-hot encoding)
+Season_dummies <- model.matrix(~ Season, data = Season)[, -1]
+# dropped 1 season (autumn) to avoid the dummy variable trap
+
+Is_Weekend <- ifelse(weekdays(repeated_dates) %in% c("Saturday", "Sunday"), 1, 0)
+
+# turn into matrix
+xreg_future <- cbind(Energy_generation, Season_dummies, Is_Weekend)
+colnames(xreg_future)[2] <- "SeasonSpring"
+colnames(xreg_future)[3] <- "SeasonSummer"
+colnames(xreg_future)[4] <- "SeasonWinter"
+```
+
+I'm going to forecast 48 trading periods for 12 months
+```{r}
+forecast_SARIMAX_1 <- forecast(SARIMAX_FINAL, h = 17520, xreg = xreg_future)
+forecast_SARIMAX <- ts(forecast_SARIMAX_1$mean, start = c(2019, 1), frequency = 48)
 ```
 
 # Loading test data:
@@ -216,19 +378,21 @@ ARIMA_312_acc <- accuracy(forecast_ARIMA_312, Test_time_series)
 ARIMA_411_acc <- accuracy(forecast_ARIMA_411, Test_time_series)
 SARIMA_acc <- accuracy(forecast_SARIMA, Test_time_series)
 STL_ARIMA_acc <- accuracy(forecast_STL_ARIMA, Test_time_series)
+SARIMAX_acc <- accuracy(forecast_SARIMAX, Test_time_series)
 ```
 
 ```{r}
 acc_list <- list(ARIMA312 = ARIMA_312_acc, ARIMA411 = ARIMA_411_acc, SARIMA = SARIMA_acc, 
-                  STL_ARIMA = STL_ARIMA_acc)
+                  STL_ARIMA = STL_ARIMA_acc, SARIMAX = SARIMAX_acc)
 
-acc_df <- map_df(acc_list2, ~ as.data.frame(.x)["Test set", ], .id = "Model")
+acc_df <- map_df(acc_list, ~ as.data.frame(.x)["Test set", ], .id = "Model")
 ```
 
 Manually calculating the MASE values:
 ```{r}
+MASE_cal <- function(forecast_1) {
 # MAE of forecast errors
-mae_model <- mean(abs(Test_time_series - forecast_SARIMA))
+mae_model <- mean(abs(Test_time_series - forecast_1))
 
 # Naive forecast (random walk with no drift)
 naive_forecast <- naive(train_val, h = length(Test_time_series))
@@ -236,74 +400,102 @@ naive_forecast <- ts(naive_forecast$mean, start = c(2019, 1), frequency = 48)
 mae_naive <- mean(abs(Test_time_series - naive_forecast))
 
 # MASE = MAE(model) / MAE(naive)
-mase_SARIMA <- mae_model / mae_naive
-mase_SARIMA
+MASE <- mae_model / mae_naive
+return(MASE)
+}
+
 ```
 
 ```{r}
-mae_model <- mean(abs(Test_time_series - forecast_ARIMA_312))
-naive_forecast <- naive(train_val, h = length(Test_time_series))
-naive_forecast <- ts(naive_forecast$mean, start = c(2019, 1), frequency = 48)
-mae_naive <- mean(abs(Test_time_series - naive_forecast))
-mase_ARIMA3 <- mae_model / mae_naive
-mase_ARIMA3
+mase_SARIMA <- MASE_cal(forecast_SARIMA)
+mase_ARIMA3 <- MASE_cal(forecast_ARIMA_312)
+mase_ARIMA4 <- MASE_cal(forecast_ARIMA_411)
+mase_STL <- MASE_cal(forecast_STL_ARIMA)
+mase_SARIMAX <- MASE_cal(forecast_SARIMAX)
+```
+
+Manually Calculating the Theil's U
+```{r}
+theils_u <- function(forecast_1){
+# Calculating RMSE
+rmse <- sqrt(mean( (forecast_1 - Test_time_series)^2 ))
+# Calculating root mean squared actuals
+rmsa <- sqrt(mean( Test_time_series^2 ))
+# Calculating Theil's U
+theilsU <- rmse / rmsa
+return(theilsU)
+}
+
 ```
 
 ```{r}
-mae_model <- mean(abs(Test_time_series - forecast_ARIMA_411))
-naive_forecast <- naive(train_val, h = length(Test_time_series))
-naive_forecast <- ts(naive_forecast$mean, start = c(2019, 1), frequency = 48)
-mae_naive <- mean(abs(Test_time_series - naive_forecast))
-mase_ARIMA4 <- mae_model / mae_naive
-mase_ARIMA4
+Theil_SARIMA <- theils_u(forecast_SARIMA)
+Theil_ARIMA3 <- theils_u(forecast_ARIMA_312)
+Theil_ARIMA4 <- theils_u(forecast_ARIMA_411)
+Theil_STL <- theils_u(forecast_STL_ARIMA)
+Theil_SARIMAX <- theils_u(forecast_SARIMAX)
 ```
 
 ```{r}
-mae_model <- mean(abs(Test_time_series - forecast_STL_ARIMA))
-naive_forecast <- naive(train_val, h = length(Test_time_series))
-naive_forecast <- ts(naive_forecast$mean, start = c(2019, 1), frequency = 48)
-mae_naive <- mean(abs(Test_time_series - naive_forecast))
-mase_STL <- mae_model / mae_naive
-mase_STL
-```
+acc_df <- acc_df %>% mutate(MASE = c(mase_ARIMA3, mase_ARIMA4, mase_SARIMA, mase_STL, mase_SARIMAX)) 
+acc_df <- acc_df %>% mutate(`Theil's U` = c(Theil_ARIMA3, Theil_ARIMA4, Theil_SARIMA, Theil_STL, Theil_SARIMAX)) 
 
-```{r}
-acc_df <- acc_df %>% mutate(MASE = c(mase_ARIMA3, mase_ARIMA4, mase_SARIMA, mase_STL)) 
-
-acc_df %>% arrange(MASE)
+acc_df %>% arrange(MASE) %>% mutate(across(where(is.numeric), ~ round(.x, digits = 4)))
 ```
 
 The MASE for STL-ARIMA is 0.79 which means it outperforms a naive forecast (its errors are 21% smaller than a naive forecasts).
 
-
-## Plot
+## Forecast Plots
 ```{r}
-start_time     <- as.POSIXct("2019-01-01 00:00:00", tz = "UTC")
+plot_actual_forecast <- function(start_time, actual_vals, start_year, forecasts, model_name) {
+start_time     <- as.POSIXct(start_time, tz = "UTC")
 times_forecast <- seq(start_time, by = "30 min", length.out = 17520)
 
-Test_time_series2 <- ts(test_data$DollarsPerMegawattHour, frequency = 48, start = c(2019, 1))
+Test_time_series2 <- ts(actual_vals$DollarsPerMegawattHour, frequency = 48, start = c(start_year, 1))
 df_actual <- data.frame(Date = times_forecast, Value = as.numeric(Test_time_series2), Type = "Actual")
-
-forecast_raw_ARIMA_1_plot <- ts(forecast_SARIMA_1, start = c(2019, 1), frequency = 48)
 
 df_forecast <- data.frame(
   Date  = times_forecast,
-  Mean  = as.numeric(forecast_raw_ARIMA_1_plot$mean),
-  Lower = as.numeric(forecast_raw_ARIMA_1_plot$lower[,2]),  # 95% lower bound
-  Upper = as.numeric(forecast_raw_ARIMA_1_plot$upper[,2]),  # 95% upper bound
+  Mean  = as.numeric(forecasts$mean),
+  Lower = as.numeric(forecasts$lower[,2]),  # 95% lower bound
+  Upper = as.numeric(forecasts$upper[,2]),  # 95% upper bound
   Type  = "Forecast"
 )
 
 ggplot() +
   geom_line(data = df_actual, aes(x = Date, y = Value, color = "Actual"), size = 0.55) +
-  geom_line(data = df_forecast, aes(x = Date, y = Mean, color = "Forecast"), size = 1, alpha = 0.8, linetype = "dashed") +
-  geom_ribbon(data = df_forecast, aes(x = Date, ymin = Lower, ymax = Upper), fill = "lightblue", alpha = 0.3) +
+  geom_line(data = df_forecast, aes(x = Date, y = Mean, color = "Forecast"), 
+            size = 1, alpha = 0.8, linetype = "dashed") +
+  geom_ribbon(data = df_forecast, aes(x = Date, ymin = Lower, ymax = Upper), 
+              fill = "lightblue", alpha = 0.3) +
   scale_color_manual(values = c("Actual" = "firebrick1", "Forecast" = "steelblue3")) +
-  scale_x_datetime(date_breaks = "1 month",  date_labels = "%B",  expand = c(0, 0), guide = guide_axis(n.dodge = 2)) +
-  labs(title = paste("SArima", " Forecast vs Actual Prices for ", 2019, sep = ""),
+  scale_x_datetime(date_breaks = "1 month",  date_labels = "%B",  expand = c(0, 0), 
+                   guide = guide_axis(n.dodge = 2)) +
+  labs(title = paste(model_name, " Forecast vs Actual Prices for ", start_year, sep = ""),
        x = "Month", y = "Electricity Price", color = "Legend") +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5))
+}
+```
+
+
+```{r}
+plot_actual_forecast("2019-01-01 00:00:00", test_data, 2019, forecast_SARIMAX_1, "SARIMAX(2,1,2)(0,0,1)")
+```
+
+# Saving models
+
+```{r}
+saveRDS(ARIMA_model_Final_312, file = "Models/Final models/arima_312_model.rds")
+saveRDS(ARIMA_model_Final_411, file = "Models/Final models/arima_412_model.rds")
+saveRDS(SARIMA_model_Final, file = "Models/Final models/sarima_model.rds")
+saveRDS(STL_ARIMA_FINAL, file = "Models/Final models/stl_arima_model.rds")
+saveRDS(SARIMAX_FINAL, file = "Models/Final models/SARIMAX_model.rds")
+
+# Saving SARIMAX with xreg (done because future xreg contains forecasted variable)
+saveRDS(list(model = SARIMAX_FINAL, future_xreg = xreg_future), "Models/Final models/arima_with_xreg.rds")
+saveRDS(Energy_generation_model_2, file = "Models/Final models/Energy_generation_model.rds")
+
 ```
 
 # References and Citations

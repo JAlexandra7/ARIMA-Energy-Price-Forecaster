@@ -253,6 +253,11 @@ Conclusion:
 
 All of the above information from the ACF and PACF plots suggests that the data is non-stationary and that there could be a seasonal component to the data.
 
+```{r}
+ndiffs(time_series_data)
+```
+The number of differences required to achieve stationarity is one.
+
 I am going to apply first order differencing to the data to make the data stationary, as a stationary time series is a requirement of ARIMA.
 
 ```{r}
@@ -382,8 +387,8 @@ My STL-ARIMA model is: STL-ARIMA(5,1,1)
 
 I have an autoregressive component of order 5, first order differencing has been applied to the time series and there is a moving average component of order 1.
 
-## ARIMAX
-I've chosen to fit an ARIMAX model to the energy price data because I want to see if incorporating external information will improve the models forecasting accuracy.
+## SARIMAX
+I've chosen to fit an SARIMAX model to the energy price data because I want to see if incorporating external information will improve the models forecasting accuracy.
 
 ### Feature engineering
 On the EMI site, I found energy generation information. My understanding is that if the supply of energy (energy generation output) decreases, then the price of energy will increase, so energy generation information could be useful for predicting energy prices.
@@ -480,26 +485,25 @@ Energy_generation <- Generation_Overall_Output$Energy_output / 1e6
 # Season:
 # I'm using meteorological season start dates (which are the same every year)
 # for simplicity and consistency
-Season <- data.frame(Date = Training_set$TradingDate)
-Season$Season <- rep("", nrow(Training_set))
-Season$Season[
-  which(Season$Date >= as.Date("2017-03-01") & Season$Date <= as.Date("2017-05-31"))
-] <- "Autumn"
+get_season <- function(date) {
+  month_day <- format(as.Date(date), "%m-%d")
+  if (month_day >= "12-01" || month_day < "03-01") {
+    return("Summer")
+  } else if (month_day >= "03-01" && month_day < "06-01") {
+    return("Autumn")
+  } else if (month_day >= "06-01" && month_day < "09-01") {
+    return("Winter")
+  } else {
+    return("Spring")
+  }
+}
 
-Season$Season[
-  which(Season$Date >= as.Date("2017-06-01") & Season$Date <= as.Date("2017-08-31"))
-] <- "Winter"
+seasons_df <- sapply(Training_set$TradingDate, get_season)
 
-Season$Season[
-  which(Season$Date >= as.Date("2017-09-01") & Season$Date <= as.Date("2017-11-30"))
-] <- "Spring"
-
-Season$Season[
-  which(Season$Date >= as.Date("2017-12-01") & Season$Date <= as.Date("2017-12-31"))
-] <- "Summer"
-Season$Season[
-  which(Season$Date >= as.Date("2017-01-01") & Season$Date <= as.Date("2017-02-28"))
-] <- "Summer"
+Season <- data.frame(
+  TradingPeriod = Training_set$TradingDate,
+  Season = seasons_df
+)
 
 # Converting seasons to dummy variables (with one-hot encoding)
 Season_dummies <- model.matrix(~ Season, data = Season)[, -1]
@@ -513,7 +517,7 @@ xreg <- cbind(Energy_generation, Season_dummies, Is_Weekend)
 
 Note that energy generation was scaled down because if the regressors in xreg have very large values, it can cause numerical instability.
 
-These engineered variables make up my xreg matrix for ARIMAX. I'm going to see if including these eXogenous variables in the model results in better forecasting accuracy.
+These engineered variables make up my xreg matrix for SARIMAX. I'm going to see if including these eXogenous variables in the model results in better forecasting accuracy.
 
 ### Feature correlation with response
 Checking correlation with response:
@@ -552,14 +556,14 @@ The response variable has a weak negative correlation of -0.05 with Season Summe
 
 Fitting model:
 ```{r}
-ARIMAX_model1 <- auto.arima(time_series_data, xreg = xreg, stepwise = TRUE, approximation = TRUE, 
+SARIMAX_model1 <- auto.arima(time_series_data, xreg = xreg, stepwise = TRUE, approximation = TRUE, 
                             d = 1, max.p = 2, max.q = 2, max.P = 1, max.Q = 1, allowdrift = TRUE)
 ```
 
 ```{r}
-summary(ARIMAX_model1)
+summary(SARIMAX_model1)
 ```
-My ARIMAX model is: ARIMA(2,1,2)(0,0,1)[48] errors
+My SARIMAX model is: ARIMA(2,1,2)(0,0,1)[48] errors
 
 The time series is being modeled using the external predictors (xreg) but the errors are following an ARIMA process.
 
@@ -812,7 +816,7 @@ Of the 108 models that I attempted to fit in the grid search, 1 of those models 
 
 I will be moving forward with the ARMA(1,0) fiGARCH(1,1) model for forecasting due to it having the best performance in terms of AIC, BIC, Shibata and Hannan-Quinn.
 
-#### Fitting ARIMAX-fiGARCH
+#### Fitting SARIMAX-fiGARCH
 ```{r}
 spec <- ugarchspec(
   variance.model = list(model = "fiGARCH", garchOrder = c(1, 1)),
@@ -930,10 +934,10 @@ forecast_raw_STL_1 <- forecast(STL_ARIMA_model1, h = 17520)
 forecast_STL <- ts(forecast_raw_STL_1, start = c(2018, 1), frequency = 48)
 ```
 
-## ARIMAX
-Of my three ARIMAX variables, only two are known in advance every year (Is_Weekend and Season), and one isn't known in advance every year (Energy_generation). Because I want to simulate real world conditions during validation I am going to compare the results of two ARIMAX models, one with the actual Energy_generation values and one with forecasted Energy_generation values. This is to understand how sensitive the model is to uncertainty in external inputs.
+## SARIMAX
+Of my three SARIMAX variables, only two are known in advance every year (Is_Weekend and Season), and one isn't known in advance every year (Energy_generation). Because I want to simulate real world conditions during validation I am going to compare the results of two SARIMAX models, one with the actual Energy_generation values and one with forecasted Energy_generation values. This is to understand how sensitive the model is to uncertainty in external inputs.
 
-### ARIMAX; actual Energy_generation
+### SARIMAX; actual Energy_generation
 Forecasting with actual Energy_generation values:
 ```{r}
 csv_files2 <- list.files(path = "Energy Generation - 2018", pattern = "*.csv", full.names = TRUE)
@@ -1032,14 +1036,14 @@ xreg_future <- cbind(Energy_generation, Season_dummies, Is_Weekend)
 
 Forecasting:
 ```{r}
-forecast_raw_ARIMAX_1 <- forecast(ARIMAX_model1, h = 17520, xreg = xreg_future)
+forecast_raw_SARIMAX_1 <- forecast(SARIMAX_model1, h = 17520, xreg = xreg_future)
 ```
 
 ```{r}
-forecast_ARIMAX <- ts(forecast_raw_ARIMAX_1, start = c(2018, 1), frequency = 48)
+forecast_SARIMAX <- ts(forecast_raw_SARIMAX_1, start = c(2018, 1), frequency = 48)
 ```
 
-### ARIMAX; forecasted Energy_generation
+### SARIMAX; forecasted Energy_generation
 Forecasting with estimated (forecasted) Energy_generation values:
 
 Model for forecasting Energy_generation values, note that a Box-Cox transformation has been applied to ensure all outputs are non-negative. This is done because a power plant cannot generate less than zero energy:
@@ -1103,11 +1107,11 @@ colnames(xreg_future2)[4] <- "SeasonWinter"
 
 Forecasting:
 ```{r}
-forecast_raw_ARIMAX_2 <- forecast(ARIMAX_model1, h = 17520, xreg = xreg_future2)
+forecast_raw_SARIMAX_2 <- forecast(SARIMAX_model1, h = 17520, xreg = xreg_future2)
 ```
 
 ```{r}
-forecast_ARIMAX2 <- ts(forecast_raw_ARIMAX_2, start = c(2018, 1), frequency = 48)
+forecast_SARIMAX2 <- ts(forecast_raw_SARIMAX_2, start = c(2018, 1), frequency = 48)
 ```
 
 ## ARIMA-GARCH
@@ -1136,8 +1140,8 @@ Model accuracy:
 ARIMA_acc <- accuracy(forecast_ARIMA, Val_time_series)
 SARIMA_acc <- accuracy(forecast_SARIMA, Val_time_series)
 STL_ARIMA_acc <- accuracy(forecast_STL, Val_time_series)
-ARIMAX_acc <- accuracy(forecast_ARIMAX, Val_time_series)
-ARIMAX2_acc <- accuracy(forecast_ARIMAX2, Val_time_series)
+SARIMAX_acc <- accuracy(forecast_SARIMAX, Val_time_series)
+SARIMAX2_acc <- accuracy(forecast_SARIMAX2, Val_time_series)
 GARCH_acc <- accuracy(forecast_GARCH, Val_time_series)
 ```
 
@@ -1146,8 +1150,8 @@ acc_list <- list(
   ARIMA     = ARIMA_acc,
   SARIMA    = SARIMA_acc,
   STL_ARIMA = STL_ARIMA_acc,
-  ARIMAX    = ARIMAX_acc,
-  ARIMAX_model2 = ARIMAX2_acc,
+  SARIMAX    = SARIMAX_acc,
+  SARIMAX_model2 = SARIMAX2_acc,
   ARIMA_fiGARCH = GARCH_acc)
 ```
 
@@ -1179,7 +1183,7 @@ The worst model was ARIMA-GARCH with the worst performance on every metric.
 
 SARIMA and STL-ARIMA had similar performance with SARIMA having a slightly lower value for most metrics. STL-ARIMA had the lower values for ME and MPE though.
 
-The ARIMAX model with the (ARIMA(3,0,1)(1,1,0)[48] with drift) forecasted energy generation variable in its xreg (labeled ARIMAX_model2), performed similarly to ARIMAX with the actual values for energy generation in its xreg. There is an average difference of 0.05 between the performances. This tells me that the use of an estimated Energy_generation variable does not harm model performance significantly.
+The SARIMAX model with the (ARIMA(3,0,1)(1,1,0)[48] with drift) forecasted energy generation variable in its xreg (labeled SARIMAX_model2), performed similarly to SARIMAX with the actual values for energy generation in its xreg. There is an average difference of 0.05 between the performances. This tells me that the use of an estimated Energy_generation variable does not harm model performance significantly.
 
 All models have ACF1 values of 0.65 or larger indicating a strong positive autocorrelation at lag 1, this suggests that every model fitted has not yet captured all autocorrelation in the time series. Ideally, residuals should resemble white noise (where ACF1 approximately equals 0). During model refinement I will try adding more AR and MA terms to try and capture this autocorrelation. I will also reassess the differencing order to see if the series needs further transformation.
 
@@ -1204,7 +1208,7 @@ The mean absolute percentage error was 15.29% which means that the models foreca
 
 The models ACF1 was 0.65 which indicates that the residuals are moderately autocorrelated so there is some structure or pattern in the data that the model did not capture.
 
-The ARIMA model did better than the STL-ARIMA, ARIMAX and ARIMA-GARCH models which so far shows that a more complex model does not equal a better performance, those other models were overfitting on the training data and not generalizing well enough to forecast the following year.
+The ARIMA model did better than the STL-ARIMA, SARIMAX and ARIMA-GARCH models which so far shows that a more complex model does not equal a better performance, those other models were overfitting on the training data and not generalizing well enough to forecast the following year.
 
 Theil's U is 1.38 which means that the ARIMA models forecasts are slightly worse than the naive forecasts, but this could be due to RMSE sensitivity (Theil's U is sensitive to large errors).
 
@@ -1260,15 +1264,15 @@ The ARIMA model has significant issues modelling the volatility of the energy pr
 # Saving models for future use
 
 ```{r}
-saveRDS(ARIMA_model1, file = "Models/arima_model.rds")
-saveRDS(SARIMA_model1, file = "Models/sarima_model.rds")
-saveRDS(STL_ARIMA_model1, file = "Models/stl_arima_model.rds")
-saveRDS(ARIMAX_model1, file = "Models/arimax_model.rds")
-saveRDS(GARCH_model, file = "Models/garch_model.rds")
+saveRDS(ARIMA_model1, file = "Models/Initial models from training/arima_model.rds")
+saveRDS(SARIMA_model1, file = "Models/Initial models from training/sarima_model.rds")
+saveRDS(STL_ARIMA_model1, file = "Models/Initial models from training/stl_arima_model.rds")
+saveRDS(SARIMAX_model1, file = "Models/Initial models from training/SARIMAX_model.rds")
+saveRDS(GARCH_model, file = "Models/Initial models from training/garch_model.rds")
 
-# Saving ARIMAX with xreg (done because future xreg contains forecasted variable)
-saveRDS(list(model = ARIMAX_model1, future_xreg = xreg_future2), "Models/arima_with_xreg.rds")
-saveRDS(fit_Energy, file = "Models/Energy_generation_model.rds")
+# Saving SARIMAX with xreg (done because future xreg contains forecasted variable)
+saveRDS(list(model = SARIMAX_model1, future_xreg = xreg_future2), "Models/Initial models from training/arima_with_xreg.rds")
+saveRDS(fit_Energy, file = "Models/Initial models from training/Energy_generation_model.rds")
 
 ```
 
@@ -1282,7 +1286,20 @@ write.csv(Training_set, "Saved_Datasets/Training_set.csv", row.names = FALSE)
 df_V <- data.frame(Value = as.numeric(Val_time_series))
 write.csv(df_V, "Saved_Datasets/Val_time_series.csv", row.names = FALSE)
 write.csv(val_set, "Saved_Datasets/Val_set.csv", row.names = FALSE)
+write.csv(xreg, "Saved_Datasets/xreg.csv", row.names = FALSE)
+write.csv(xreg_future2, "Saved_Datasets/xreg_future.csv", row.names = FALSE)
 
+
+```
+
+Saving forecasts:
+```{r}
+# Save the forecast object
+saveRDS(forecast_ARIMA, file = "Saved_Forecasts/forecast_ARIMA.rds")
+saveRDS(forecast_SARIMA, file = "Saved_Forecasts/forecast_SARIMA.rds")
+saveRDS(forecast_STL, file = "Saved_Forecasts/forecast_STL.rds")
+saveRDS(forecast_SARIMAX2, file = "Saved_Forecasts/forecast_SARIMAX.rds")
+saveRDS(forecast_GARCH, file = "Saved_Forecasts/forecast_GARCH.rds")
 ```
 
 

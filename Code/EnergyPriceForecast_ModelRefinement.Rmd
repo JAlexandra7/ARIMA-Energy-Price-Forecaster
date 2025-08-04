@@ -28,13 +28,13 @@ set.seed(48)
 
 # Loading models and data
 ```{r}
-ARIMA_model1 <- readRDS("Models/arima_model.rds")
-ARIMAX_model_fx <- readRDS("Models/arima_with_xreg.rds")
-ARIMAX_model1 <- readRDS("Models/arimax_model.rds")
-Energy_generation_model <- readRDS("Models/Energy_generation_model.rds")
-GARCH_model <- readRDS("Models/garch_model.rds")
-SARIMA_model1 <- readRDS("Models/sarima_model.rds")
-STL_ARIMA_model1 <- readRDS("Models/stl_arima_model.rds")
+ARIMA_model1 <- readRDS("models/Initial models from training/arima_model.rds")
+SARIMAX_model_fx <- readRDS("models/Initial models from training/arima_with_xreg.rds")
+SARIMAX_model1 <- readRDS("models/Initial models from training/arimax_model.rds")
+Energy_generation_model <- readRDS("models/Initial models from training/Energy_generation_model.rds")
+GARCH_model <- readRDS("models/Initial models from training/garch_model.rds")
+SARIMA_model1 <- readRDS("models/Initial models from training/sarima_model.rds")
+STL_ARIMA_model1 <- readRDS("models/Initial models from training/stl_arima_model.rds")
 
 ```
 
@@ -298,7 +298,7 @@ For invertibility, the modulus (absolute value) of all roots must be larger than
 
 Since the absolute value of the root is outside the unit circle (i.e. modulus > 1), this means the ARIMA part of the STL-ARIMA model satisfies the invertibility condition for both the MA components.
 
-## ARIMAX
+## SARIMAX
 
 Ljung-Box test:
 
@@ -308,38 +308,38 @@ Alternative hypothesis: There is autocorrelation in the residuals.
 
 Autocorrelation check with Ljung Box test, acf and pacf plots:
 ```{r}
-checkresiduals(ARIMAX_model1)
+checkresiduals(SARIMAX_model1)
 ```
 The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there is autocorrelation in the residuals.
 
 ```{r}
-acf(residuals(ARIMAX_model1), lag.max = 10000)
+acf(residuals(SARIMAX_model1), lag.max = 10000)
 ```
 Most lags are within the confidence bounds but there is a spike around lag 25 that is outside the confidence bounds. I'm going to increase the MA term because of this.
 
 ```{r}
-pacf(residuals(ARIMAX_model1), lag.max = 10000)
+pacf(residuals(SARIMAX_model1), lag.max = 10000)
 ```
 
 There are a significant spikes outside of the confidence bounds, particularly between lag 1 and lag 25 suggesting there is still significant autocorrelation in the residuals. This implies that the AR term (p) is under specified. I am going to try increasing the AR component to capture the remaining autocorrelation.
 
 Anderson-Darling normality test:
 ```{r}
-ad.test(residuals(ARIMAX_model1))
+ad.test(residuals(SARIMAX_model1))
 ```
 The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that the residuals deviate significantly from a normal distribution.
 
-Since the residuals deviate significantly from normality, the ARIMAX model's forecast uncertainty estimates could be inaccurate (too narrow or too wide).
+Since the residuals deviate significantly from normality, the SARIMAX model's forecast uncertainty estimates could be inaccurate (too narrow or too wide).
 
 ARCH test on residuals:
 ```{r}
-ArchTest(residuals(ARIMAX_model1), lags = 48)
+ArchTest(residuals(SARIMAX_model1), lags = 48)
 ```
-The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there are ARCH effects present in the residuals (the residual variance changes over time and depends on past squared residuals (heteroskedasticity). The assumption of constant variance for the ARIMAX model is violated, meaning that the models forecast confidence intervals may be inaccurate.
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there are ARCH effects present in the residuals (the residual variance changes over time and depends on past squared residuals (heteroskedasticity). The assumption of constant variance for the SARIMAX model is violated, meaning that the models forecast confidence intervals may be inaccurate.
 
 Checking for constant variance in plot:
 ```{r}
-plot(residuals(ARIMAX_model1) ~ fitted(ARIMAX_model1))
+plot(residuals(SARIMAX_model1) ~ fitted(SARIMAX_model1))
 ```
 As the fitted values increase, the residuals fan out, showing increasing variance.
 
@@ -350,7 +350,7 @@ This plot supports the results from the ARCH test.
 
 Checking the mean of the residuals is reasonably close to zero with a one sample t-test:
 ```{r}
-t.test(residuals(ARIMAX_model1), mu = 0)
+t.test(residuals(SARIMAX_model1), mu = 0)
 
 ```
 The mean of the residuals is 0.02 
@@ -360,22 +360,22 @@ The p-value of the one sample t-test is 0.8789, there is not enough evidence to 
 Checking that the time series is invertible (eg. if its errors can be represented as a weighted sum of past observations)
 
 ```{r}
-ARIMAX_model1$coef
+SARIMAX_model1$coef
 ```
 The model has MA terms ma1, ma2, and sma1.
 
 ```{r}
-ma_coefs <- c(1, -ARIMAX_model1$coef["ma1"], -ARIMAX_model1$coef["ma2"])  # Inverting sign for root checking
+ma_coefs <- c(1, -SARIMAX_model1$coef["ma1"], -SARIMAX_model1$coef["ma2"])  # Inverting sign for root checking
 Mod(polyroot(ma_coefs))  # Gives modulus of each root (polyroot gives the complex roots)
 ```
 
 ```{r}
-sma_coefs <- c(1, -ARIMAX_model1$coef["sma1"])
+sma_coefs <- c(1, -SARIMAX_model1$coef["sma1"])
 Mod(polyroot(sma_coefs))
 ```
 For invertibility, the modulus (absolute value) of all roots must be larger than 1.
 
-All of these are well outside the unit circle (i.e. modulus > 1), which means the ARIMAX model satisfies the invertibility condition for both the non-seasonal and seasonal MA components.
+All of these are well outside the unit circle (i.e. modulus > 1), which means the SARIMAX model satisfies the invertibility condition for both the non-seasonal and seasonal MA components.
 
 # Model refinement
 For every single model the residuals showed autocorrelation, non-normality and had ARCH effects (non constant variance).
@@ -386,9 +386,9 @@ I am going to apply a Box-Cox transformation to my time series prior to fitting 
 
 I am going to increase the orders of the AR and MA components because the Ljung box test's show that there is still autocorrelation in the residuals of every single model, which means that every single model is not capturing all the underlying structure/patterns in the data. The ACF and PACF plots support this.
 
-I will be adding additional variables to ARIMAX to see if that improves the models forecasting accuracy.
+I will be adding additional variables to SARIMAX to see if that improves the models forecasting accuracy.
 
-# ARIMA
+## ARIMA
 Applying Box-Cox to time series:
 ```{r}
 lambda <- BoxCox.lambda(time_series_data) 
@@ -435,7 +435,7 @@ ARIMA_model8 <- Arima(time_series_data, order = c(4,1,2))
 ```
 
 
-# SARIMA
+## SARIMA
 Box-Cox time series model:
 ```{r}
 SARIMA_model2 <- Arima(ts_bc, order = c(3,1,1),
@@ -490,7 +490,7 @@ SARIMA_model10 <- Arima(ts_bc, order = c(3,1,1),
                        seasonal = list(order = c(0, 0, 2), period = 48))
 ```
 
-# STL-ARIMA
+## STL-ARIMA
 ```{r}
 STL_ARIMA_model2 <- stlm(ts_bc, s.window = "periodic", robust = TRUE,
                          modelfunction = function(x) Arima(x, order = c(5, 1, 1)))
@@ -526,27 +526,83 @@ STL_ARIMA_model8 <- stlm(time_series_data, s.window = "periodic", robust = TRUE,
                          modelfunction = function(x) Arima(x, order = c(6, 1, 2)))
 ```
 
-# ARIMAX
-ARIMAX with the original xreg (season, energy generation and Is_weekend):
+## SARIMAX
+SARIMAX with the original xreg (season, energy generation and Is_weekend):
 ```{r}
-ARIMAX_model2 <- Arima(ts_bc, order = c(2,1,2), seasonal = list(order = c(0, 0, 1), period = 48),
+SARIMAX_model2 <- Arima(ts_bc, order = c(2,1,2), seasonal = list(order = c(0, 0, 1), period = 48),
                       xreg = xreg)
 ```
 
 ```{r}
-ARIMAX_model3 <- Arima(ts_bc, order = c(3,1,2), seasonal = list(order = c(0, 0, 1), period = 48),
+SARIMAX_model3 <- Arima(ts_bc, order = c(3,1,2), seasonal = list(order = c(0, 0, 1), period = 48),
                       xreg = xreg)
 ```
 
 ```{r}
-ARIMAX_model4 <- Arima(ts_bc, order = c(2,1,3), seasonal = list(order = c(0, 0, 1), period = 48),
+SARIMAX_model4 <- Arima(ts_bc, order = c(2,1,3), seasonal = list(order = c(0, 0, 1), period = 48),
                       xreg = xreg)
 ```
 
 ```{r}
-ARIMAX_model5 <- Arima(ts_bc, order = c(3,1,3), seasonal = list(order = c(0, 0, 1), period = 48),
+SARIMAX_model5 <- Arima(ts_bc, order = c(3,1,3), seasonal = list(order = c(0, 0, 1), period = 48),
                       xreg = xreg)
 ```
+
+```{r}
+SARIMAX_model6 <- Arima(time_series_data, order = c(3,1,2), seasonal = list(order = c(0, 0, 1), period = 48),
+                      xreg = xreg)
+```
+
+```{r}
+SARIMAX_model7 <- Arima(time_series_data, order = c(2,1,3), seasonal = list(order = c(0, 0, 1), period = 48),
+                      xreg = xreg)
+```
+
+```{r}
+SARIMAX_model8 <- Arima(time_series_data, order = c(3,1,3), seasonal = list(order = c(0, 0, 1), period = 48),
+                      xreg = xreg)
+```
+
+### Adding new variables to the xreg for SARIMAX
+I will be adding two variables to the xreg for SARIMAX; bids for electricity and fuel prices (natural gas)
+
+ISSUE: - Volume of bids/offers or spread between bid and ask prices in energy exchanges
+
+ISSUE: add variables to xreg_new
+Loading data:
+```{r}
+csv_folder <- "Energy Bids/2017"
+csv_files <- list.files(path = csv_folder, pattern = "*.csv", full.names = TRUE)
+
+Energy_Bids_2017 <- csv_files %>% lapply(read.csv) %>% bind_rows()
+head(Energy_Bids_2017)
+```
+
+```{r}
+summary_counts <- Energy_Bids_2017 %>%
+  filter(Megawatts > 0) %>% # Removing place holder bids (where no megawatts of energy were bid on)
+  group_by(TradingDate, TradingPeriod) %>%
+  summarise(Bid_Volume = n(), .groups = 'drop')
+
+# View the result
+print(summary_counts)
+```
+
+
+```{r}
+xreg_new = xreg
+```
+
+```{r}
+SARIMAX_model3 <- Arima(time_series_data, order = c(2,1,2), seasonal = list(order = c(0, 0, 1), period = 48),
+xreg = xreg_new)
+```
+
+
+
+### Fitting models
+SARIMAX with the new xreg (season, energy generation and Is_weekend, issue):
+
 
 # Reevaluation on Validation set
 ## Forecasting
@@ -658,7 +714,7 @@ forecast_STL7 <- Forecasting_model(STL_ARIMA_model7, 17520, is_box = FALSE)
 forecast_STL8 <- Forecasting_model(STL_ARIMA_model8, 17520, is_box = FALSE)
 ```
 
-### ARIMAX
+### SARIMAX
 ```{r}
 Forecasting_model_X <- function(model, h, is_box = FALSE, xreg_future) {
   forecast_model <- forecast(model, h, xreg = xreg_future)
@@ -671,19 +727,31 @@ Forecasting_model_X <- function(model, h, is_box = FALSE, xreg_future) {
 ```
 
 ```{r}
-forecast_ARIMAX2 <- Forecasting_model_X(ARIMAX_model2, 17520, is_box = TRUE, xreg_future)
+forecast_SARIMAX2 <- Forecasting_model_X(SARIMAX_model2, 17520, is_box = TRUE, xreg_future)
 ```
 
 ```{r}
-forecast_ARIMAX3 <- Forecasting_model_X(ARIMAX_model3, 17520, is_box = TRUE, xreg_future)
+forecast_SARIMAX3 <- Forecasting_model_X(SARIMAX_model3, 17520, is_box = TRUE, xreg_future)
 ```
 
 ```{r}
-forecast_ARIMAX4 <- Forecasting_model_X(ARIMAX_model4, 17520, is_box = TRUE, xreg_future)
+forecast_SARIMAX4 <- Forecasting_model_X(SARIMAX_model4, 17520, is_box = TRUE, xreg_future)
 ```
 
 ```{r}
-forecast_ARIMAX5 <- Forecasting_model_X(ARIMAX_model5, 17520, is_box = TRUE, xreg_future)
+forecast_SARIMAX5 <- Forecasting_model_X(SARIMAX_model5, 17520, is_box = TRUE, xreg_future)
+```
+
+```{r}
+forecast_SARIMAX6 <- Forecasting_model_X(SARIMAX_model6, 17520, is_box = FALSE, xreg_future)
+```
+
+```{r}
+forecast_SARIMAX7 <- Forecasting_model_X(SARIMAX_model7, 17520, is_box = FALSE, xreg_future)
+```
+
+```{r}
+forecast_SARIMAX8 <- Forecasting_model_X(SARIMAX_model8, 17520, is_box = FALSE, xreg_future)
 ```
 
 ### Loading Original Models Forecasts
@@ -691,7 +759,7 @@ forecast_ARIMAX5 <- Forecasting_model_X(ARIMAX_model5, 17520, is_box = TRUE, xre
 forecast_ARIMA <- readRDS("Saved_Forecasts/forecast_ARIMA.rds")
 forecast_SARIMA <- readRDS("Saved_Forecasts/forecast_SARIMA.rds")
 forecast_Stl_ARIMA <- readRDS("Saved_Forecasts/forecast_STL.rds")
-forecast_ARIMAX <- readRDS("Saved_Forecasts/forecast_ARIMAX.rds")
+forecast_SARIMAX <- readRDS("Saved_Forecasts/forecast_SARIMAX.rds")
 forecast_GARCH <- readRDS("Saved_Forecasts/forecast_GARCH.rds")
 ```
 
@@ -733,11 +801,14 @@ STL_ARIMA8_acc <- accuracy(forecast_STL8, Val_time_series)
 ```
 
 ```{r}
-ARIMAX_acc <- accuracy(forecast_ARIMAX, Val_time_series)
-ARIMAX2_acc <- accuracy(forecast_ARIMAX2, Val_time_series)
-ARIMAX3_acc <- accuracy(forecast_ARIMAX3, Val_time_series)
-ARIMAX4_acc <- accuracy(forecast_ARIMAX4, Val_time_series)
-ARIMAX5_acc <- accuracy(forecast_ARIMAX5, Val_time_series)
+SARIMAX_acc <- accuracy(forecast_SARIMAX, Val_time_series)
+SARIMAX2_acc <- accuracy(forecast_SARIMAX2, Val_time_series)
+SARIMAX3_acc <- accuracy(forecast_SARIMAX3, Val_time_series)
+SARIMAX4_acc <- accuracy(forecast_SARIMAX4, Val_time_series)
+SARIMAX5_acc <- accuracy(forecast_SARIMAX5, Val_time_series)
+SARIMAX6_acc <- accuracy(forecast_SARIMAX6, Val_time_series)
+SARIMAX7_acc <- accuracy(forecast_SARIMAX7, Val_time_series)
+SARIMAX8_acc <- accuracy(forecast_SARIMAX8, Val_time_series)
 ```
 
 
@@ -753,8 +824,8 @@ acc_list_STL <- list(STL_ARIMA  = STL_ARIMA_acc, STL_ARIMA2 = STL_ARIMA2_acc, ST
                    STL_ARIMA4 = STL_ARIMA4_acc, STL_ARIMA5 = STL_ARIMA5_acc, STL_ARIMA6 = STL_ARIMA6_acc, 
                    STL_ARIMA7 = STL_ARIMA7_acc, STL_ARIMA8 = STL_ARIMA8_acc)
 
-acc_list_X <- list(ARIMAX  = ARIMAX_acc, ARIMAX2 = ARIMAX2_acc, ARIMAX3 = ARIMAX3_acc, ARIMAX4 = ARIMAX4_acc,
-                 ARIMAX5 = ARIMAX5_acc)
+acc_list_X <- list(SARIMAX  = SARIMAX_acc, SARIMAX2 = SARIMAX2_acc, SARIMAX3 = SARIMAX3_acc, SARIMAX4 = SARIMAX4_acc,
+                 SARIMAX5 = SARIMAX5_acc, SARIMAX6 = SARIMAX6_acc, SARIMAX7 = SARIMAX7_acc, SARIMAX8 = SARIMAX8_acc)
 ```
 
 ### ARIMA
@@ -779,16 +850,15 @@ acc_df_STL %>% arrange(MASE) %>% mutate(across(where(is.numeric), ~ round(.x, di
 ```
 The original model was outperformed by the STL-ARIMA(5,1,2) model (which had its MA term increased by one).
 
-### ARIMAX
+### SARIMAX
 ```{r}
 acc_df_X <- map_df(acc_list_X, ~ as.data.frame(.x)["Test set", ], .id = "Model")
 acc_df_X %>% arrange(MASE) %>% mutate(across(where(is.numeric), ~ round(.x, digits = 2)))
 ```
 
-The original model performed best on every metric.
+The original model performed best in regards to its ME, RMSE, MAE and MPE. I had slightly worse performance on its MAPE, and ACF1 (which means it captured 0.01 less of the autocorrelation in the residuals compared to SARIMAX 8 and 7). There was no best model for the Theil's U or MASE accuracy metrics.
 
-
-I can see that across all models performances, the models that were trained on BoxCox transformed time series performed the worst.
+I can see that across all models performances on the validation set, the models that were trained on BoxCox transformed time series performed worse than models that were trained on the original time series.
 
 # References and Citations
 
