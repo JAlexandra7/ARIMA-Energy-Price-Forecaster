@@ -1,6 +1,6 @@
 ---
-title: "Energy Price Forecasting"
-author: "JAlexandra"
+title: "Energy Price Forecasting: Model Training"
+author: "J Alexandra"
 date: "2025-07-11"
 output: pdf_document
 ---
@@ -22,6 +22,8 @@ My training set is energy price data from 2017, my validation set is 2018 data a
 After refining the models parameters using the 2018 validation set, the final models will be retrained on the combined the 2017 and 2018 datasets. The final models performance will be evaluated using 2019 data (the unseen test set).
 
 Note that this project is only using one point of connection ABY0111 for simplicity, it was selected because it is the first point of connection alphabetically.
+
+The ABY0111 point of connection refers to the location in the electricity network where power flows into or out of the Albury area. Albury is in the lower South Island.
 
 # Libraries
 ```{r, warning=FALSE}
@@ -569,10 +571,11 @@ The time series is being modeled using the external predictors (xreg) but the er
 
 The ARIMA structure of the errors is: non seasonal AR(2), first order differencing, non seasonal MA(2). There is no seasonal AR or differencing. There is a seasonal MA(1) and a seasonal period of 48
 
-## ARIMA-GARCH models
-I've decided to fit an ARIMA-GARCH model because it can handle seasonality, volatility clustering, conditional heteroskedasticity and capture tail behavior. This combination could make it better at capturing long term patterns and dealing with sudden market shocks than an ARIMA model.
 
-Fitting an ARIMA-GARCH model: 
+## SARIMA-GARCH models
+I've decided to fit an SARIMA-GARCH model because it can handle seasonality, volatility clustering, conditional heteroskedasticity and capture tail behavior. This combination could make it better at capturing long term patterns and dealing with sudden market shocks than an ARIMA model.
+
+Fitting an SARIMA-GARCH model: 
 
 Since GARCH models don't handle differencing internally I'm applied a first order differencing to my time series prior to fitting the model.
 
@@ -582,23 +585,23 @@ I'm starting by testing different distributions with the same model to see which
 
 Testing different distributions:
 ```{r}
-fit_ARIMA_GARCH <- function(distribution, garchorder_1, garchorder_2, armaOrder1, armaOrder2){
+fit_SARIMA_GARCH <- function(distribution, garchorder_1, garchorder_2, armaOrder1, armaOrder2){
 spec <- ugarchspec(
   variance.model = list(model = "sGARCH", garchOrder = c(garchorder_1, garchorder_2)),
   mean.model     = list(armaOrder = c(armaOrder1, armaOrder2), include.mean = TRUE),
   distribution.model = distribution
 )
-ugarchfit(spec = spec, data = first_order_diff, solver = "hybrid")
+ugarchfit(spec = spec, data = sarima_residuals, solver = "hybrid")
 }
 
 ```
 
 ```{r}
-fit_norm <- fit_ARIMA_GARCH("norm", 1, 1, 1, 1)
-fit_std  <- fit_ARIMA_GARCH("std", 1, 1, 1, 1)
-fit_ged <- fit_ARIMA_GARCH("ged", 1, 1, 1, 1)
-fit_snorm <- fit_ARIMA_GARCH("snorm", 1, 1, 1, 1)
-fit_sstd  <- fit_ARIMA_GARCH("sstd", 1, 1, 1, 1)
+fit_norm <- fit_SARIMA_GARCH("norm", 1, 1, 1, 1)
+fit_std  <- fit_SARIMA_GARCH("std", 1, 1, 1, 1)
+fit_ged <- fit_SARIMA_GARCH("ged", 1, 1, 1, 1)
+fit_snorm <- fit_SARIMA_GARCH("snorm", 1, 1, 1, 1)
+fit_sstd  <- fit_SARIMA_GARCH("sstd", 1, 1, 1, 1)
 ```
 
 ```{r}
@@ -609,10 +612,10 @@ info_table <- sapply(models, infocriteria)
 info_df <- as.data.frame(t(info_table))
 colnames(info_df) <- c("AIC", "BIC", "Shibata", "Hannan-Quinn")
 
-print(info_df)
+info_df %>% arrange(AIC)
 ```
 
-The generalized error distribution distribution (GED) has the best model fit according to AIC, BIC, Shibata, and Hannan-Quinn. I'm going to double check that its the best distribution for the data by looking at the residuals.
+The Skewed Student's t-distribution (SSTD) has the best model fit according to AIC, BIC, Shibata, and Hannan-Quinn. I'm going to double check that its the best distribution for the data by looking at the residuals.
 
 ### kernel density plots
 To visually check which distribution best fits the model, I am going to plot the theoretical distribution of each model over the actual distribution of its residuals (errors). This will allow me to see how closely each models theoretical distribution aligns with its observed residuals.
@@ -641,18 +644,26 @@ For both plots, the peak of the actual residuals (shown by black line) is much h
 This suggests that the normal distribution and skewed normal distribution are poor fits for the ARIMA-GARCH models.
 
 ```{r}
-par(mfrow = c(1, 2))
-
 x <- residuals(fit_ged)
 plot(density(residuals(fit_ged)), main = "Residuals vs GED")
 curve(dged(x, mean = 0, sd = sd(residuals(fit_ged)), 
            nu = coef(fit_ged)["shape"]), add = TRUE, col = "red")
+```
+The red line (representing the theoretical distribution) doesn't closely follow the black line (representing the actual distribution of the model's residuals). The peak of the actual residuals (shown by black line) is much higher than the theoretical distribution's peak (shown by red line).
+
+This shows that the theoretical distribution has much more variability (spread) than the actual distribution of the residuals. The gap between the curves suggests that the model with the ged distribution does not accurately capture the error structure.
+
+```{r}
+par(mfrow = c(1, 2))
+x <- residuals(fit_sstd)
+plot(density(residuals(fit_sstd)), main = "Residuals vs SSTD")
+curve(dsstd(x, mean = 0, sd = sd(residuals(fit_sstd)), 
+            nu = coef(fit_sstd)["shape"]), add = TRUE, col = "red")
 
 x <- residuals(fit_std)
 plot(density(residuals(fit_std)), main = "Residuals vs STD")
 curve(dstd(x, mean = 0, sd = sd(residuals(fit_std)), 
            nu = coef(fit_std)["shape"]), add = TRUE, col = "red")
-
 ```
 For both plots, the theoretical distribution overlaps the actual distribution of the residuals almost perfectly, expect for the peak.
 
@@ -660,67 +671,60 @@ This means that the spread (variability) of the distributions, theoretical and a
 
 I can see that the distributions are symmetric and centered around 0.
 
-For both plots, the peak of the actual residuals (shown by black line) is much higher than the theoretical distribution's peak (shown by red line). The GED theoretical distribution appears to more accurately capture the structure of the errors than the std distribution.
-
-```{r}
-x <- residuals(fit_sstd)
-plot(density(residuals(fit_sstd)), main = "Residuals vs SSTD")
-curve(dsstd(x, mean = 0, sd = sd(residuals(fit_sstd)), 
-            nu = coef(fit_sstd)["shape"]), add = TRUE, col = "red")
-
-```
-The red line (representing the theoretical distribution) doesn't closely follow the black line (representing the actual distribution of the model's residuals). The peak of the actual residuals (shown by black line) is much higher than the theoretical distribution's peak (shown by red line).
-
-This shows that the theoretical distribution has much more variability (spread) than the actual distribution of the residuals. The gap between the curves suggests that the model with the sstd distribution does not accurately capture the error structure.
+For both plots, the peak of the actual residuals (shown by black line) is much higher than the theoretical distribution's peak (shown by red line). The SSTD theoretical distribution appears to more accurately capture the structure of the errors than the std distribution.
 
 
 For every single model the peak of the observed residuals, shown by the black line, is much higher than the theoretical distribution curve, which is shown by the red line.
 
-The model with the GED distribution most accurately captures the structure of the errors, but it can't capture the peak (mode of the data) where majority of the data is concentrated.
+The model with the SSTD distribution most accurately captures the structure of the errors, but it can't capture the peak (mode of the data) where majority of the data is concentrated.
 
 ```{r}
 library(moments)
-skewness(residuals(fit_ged))
-kurtosis(residuals(fit_ged))
+skewness(residuals(fit_sstd))
+kurtosis(residuals(fit_sstd))
 ```
-The skew is quite close to 0, meaning the residuals are symmetric, so skewed distributions like snorm and sstd are not necessary.
+The skewness is 1.8, meaning the residuals are strongly right skewed.
 
 The kurtosis is much larger than 10, which mean that the residuals are extremely leptokurtic.
 
 ```{r}
-# log-transformed GED density
+# log-transformed SSTD density
 dged_log <- function(x, mean, sd, nu) {
   y <- exp(x) # inverse of log
   dged(y, mean = mean, sd = sd, nu = nu) * y # multiplying by the derivative of inverse (Jacobian)
 }
 
-plot(density(log(abs(residuals(fit_ged)))), main = "Log Density of Residuals vs Theoretical GED")
-curve(dged_log(x, mean = 0, sd = sd(residuals(fit_ged)), 
-               nu = coef(fit_ged)["shape"]), add = TRUE, col = "red")
+plot(density(log(abs(residuals(fit_sstd)))), main = "Log Density of Residuals vs Theoretical SSTD")
+curve(dged_log(x, mean = 0, sd = sd(residuals(fit_sstd)), 
+               nu = coef(fit_sstd)["shape"]), add = TRUE, col = "red")
 ```
 
-This plot compares the log density of residuals (black curve) against the log of the theoretical GED distribution (red curve).
+This plot compares the log density of residuals (black curve) against the log of the theoretical SSTD distribution (red curve).
 
-Although both curves peak around 2, the black curve has a sharper and higher peak than the red, this suggests that the observed residuals are more concentrated (have less spread) near their mode than the theoretical GED distribution predicts.
+Although both curves peak around 2, the black curve has a sharper and higher peak than the red, this suggests that the observed residuals are more concentrated (have less spread) near their mode than the theoretical SSTD distribution predicts.
 
-The log residual distribution shows multiple peaks, the highest peak is at around 2, and the two smaller peaks are at around -5 and -7. This shows multi-modal behavior and indicates latent structure. 
-
-The black curve extends further into the left tail and with higher density than the theoretical GED would predict. This indicates tail risk, which is the increased likelihood of extreme negative errors that could lead to substantial model errors.
+The black curve extends further into the left tail and with higher density than the theoretical SSTD would predict. This indicates tail risk, which is the increased likelihood of extreme negative errors that could lead to substantial model errors.
 
 The heavy left tail of the actual residuals indicate that the model underestimates the probability of large negative errors. When forecasting energy prices, this issue could result in poor estimates during unexpected price shocks, particularly sudden drops.
 
 The extreme kurtosis in the residuals suggests that parameter tuning is necessary to better capture tail behavior and improve model fit.
 
-### ARIMA-Garch grid search
-#### ARIMA-GARCH
+### SARIMA-Garch grid search
+#### SARIMA-GARCH
+
+I will be using the residuals from my SARIMA model
 ```{r}
-fit_ARIMA_GARCH_model <- function(garchorder_1, garchorder_2, armaOrder1, armaOrder2, spec_model){
+sarima_residuals <- residuals(SARIMA_model1)
+```
+
+```{r}
+fit_SARIMA_GARCH_model <- function(garchorder_1, garchorder_2, armaOrder1, armaOrder2, spec_model){
 spec <- ugarchspec(
   variance.model = list(model = spec_model, garchOrder = c(garchorder_1, garchorder_2)),
   mean.model     = list(armaOrder = c(armaOrder1, armaOrder2)),
-  distribution.model = "ged"
+  distribution.model = "sstd"
 )
-ugarchfit(spec = spec, data = first_order_diff, solver = "hybrid")
+ugarchfit(spec = spec, data = sarima_residuals, solver = "hybrid")
 }
 
 ```
@@ -743,11 +747,11 @@ for (i in 1:nrow(grid)) {
   model_name <- paste0("ARMA(", p, ",", q, ") GARCH(", g1, ",", g2, ")", " ", spec_model)
   cat("Fitting:", model_name, "\n")
   
-# Fits the model using custom function fit_ARIMA_GARCH
+# Fits the model using custom function fit_SARIMA_GARCH
 # Captures errors and warnings to avoid crashing the loop
 # Returns NULL if fitting the model fails
   fit <- tryCatch(
-    fit_ARIMA_GARCH_model(g1, g2, p, q, spec_model),
+    fit_SARIMA_GARCH_model(g1, g2, p, q, spec_model),
     error = function(e) {
       cat("Error:", e$message, "\n")
       return(NULL)
@@ -810,33 +814,51 @@ df_all <- enframe(all_results, name = "Model", value = "ICs") %>%
 df_all %>% arrange(Akaike)
 ```
 
-Out of the 108 models considered the ARMA(1,0) fiGARCH(1,1) model had the lowest AIC, BIC, Shibata and Hannan-Quinn.
+Out of the 108 models considered the SARIMA(3,1,1)(0,0,1)[48] + FIGARCH(1,d,1) with ARMA(2,2) in variance model had the lowest AIC, BIC, Shibata and Hannan-Quinn.
 
 Of the 108 models that I attempted to fit in the grid search, 1 of those models (the ARMA(2,2) GARCH(2,2) sGARCH model), failed to invert its hessian matrix.
 
-I will be moving forward with the ARMA(1,0) fiGARCH(1,1) model for forecasting due to it having the best performance in terms of AIC, BIC, Shibata and Hannan-Quinn.
+I will be moving forward with theis model for forecasting due to it having the best performance in terms of AIC, BIC, Shibata and Hannan-Quinn.
 
-#### Fitting SARIMAX-fiGARCH
+The model is SARIMA(3,1,1)(0,0,1)[48] + FIGARCH(1,d,1) with ARMA(2,2) in variance.
+
+The SARIMA(3,1,1)(0,0,1)[48] model captures the mean and seasonal structure of the time series. The residuals from that model have been used to fit a FIGARCH(1,d,1) volatility model, incorporating an ARMA(2,2) structure in the conditional variance equation.
+
+
+#### Fitting SARIMA-fiGARCH
+
 ```{r}
+arima_residuals <- residuals(SARIMA_model1)
+
 spec <- ugarchspec(
   variance.model = list(model = "fiGARCH", garchOrder = c(1, 1)),
   mean.model     = list(armaOrder = c(1, 0)),
-  distribution.model = "ged")
+  distribution.model = "sstd")
 
 ```
 
 ```{r}
-GARCH_model <- ugarchfit(spec = spec, data = first_order_diff, solver = "hybrid")
+GARCH_model <- ugarchfit(spec = spec, data = sarima_residuals, solver = "hybrid")
 show(GARCH_model)
 ```
+The long memory parameter for volatility, d (delta), is approximately 0.60582936, indicating persistent volatility.
 
-Since I applied first order differencing to the time series prior to fitting the model, then the model is:
+The model is SARIMA(3,1,1)(0,0,1)[48] + FIGARCH(1, 0.61, 1), with AR(1) in the mean and a skewed Student t distribution.
 
-ARMA(1,1,0) fiGARCH(1,1) model
+## TBATS
+I've decided to fit a TBATS model because it can handle multi-seasonality and doesn't require stationary data.
 
-Where the time series has been differenced one (d = 1) and includes an autoregressive component of order 1 in the mean.
+```{r}
+Tbats_model <- tbats(time_series_data)
+```
 
-The models variance dynamics include 1 ARCH term and 2 GARCH terms.
+```{r}
+show(Tbats_model)
+```
+
+My current model is TBATS(0.373, {0,0}, 0.805, {<48,8>})
+
+It applies a Box-Cox transformation with a lambda of 0.373 to the data, it has no autoregressive or moving average components, it has a trend of 0.805 and has seasonal periods 48 and 8.
 
 # Forecasting
 ## Loading Validation set:
@@ -1114,23 +1136,16 @@ forecast_raw_SARIMAX_2 <- forecast(SARIMAX_model1, h = 17520, xreg = xreg_future
 forecast_SARIMAX2 <- ts(forecast_raw_SARIMAX_2, start = c(2018, 1), frequency = 48)
 ```
 
-## ARIMA-GARCH
-Forecasting ARIMA-GARCH model:
+## SARIMA-fiGARCH
 ```{r}
 forecast_raw_Garch <- ugarchforecast(GARCH_model, n.ahead = 17520)
-mean_fc_vector <- as.numeric(fitted(forecast_raw_Garch)[ , 1])
+forecast_GARCH <- ts(fitted(forecast_raw_Garch), start = c(2019, 1), frequency = 48)
 ```
 
-I first order differenced the time series before fitting the model so I'm converting back:
-```{r}
-recovered_forecast <- as.numeric(cumsum(mean_fc_vector))
-```
+## TBATS
 
-Adding the Last Observed Value of the original series:
 ```{r}
-last_value <- as.numeric(tail(time_series_data, 1))
-final_forecast <- last_value + recovered_forecast
-forecast_GARCH <- ts(final_forecast, start = c(2019, 1), frequency = 48)
+forecast_TBATS <- forecast(Tbats_model, h = 17520)
 ```
 
 # Accuracy metrics for forecasting 2018 energy prices
@@ -1143,6 +1158,7 @@ STL_ARIMA_acc <- accuracy(forecast_STL, Val_time_series)
 SARIMAX_acc <- accuracy(forecast_SARIMAX, Val_time_series)
 SARIMAX2_acc <- accuracy(forecast_SARIMAX2, Val_time_series)
 GARCH_acc <- accuracy(forecast_GARCH, Val_time_series)
+TBATS_acc <- accuracy(forecast_TBATS, Val_time_series)
 ```
 
 ```{r}
@@ -1152,21 +1168,22 @@ acc_list <- list(
   STL_ARIMA = STL_ARIMA_acc,
   SARIMAX    = SARIMAX_acc,
   SARIMAX_model2 = SARIMAX2_acc,
-  ARIMA_fiGARCH = GARCH_acc)
+  SARIMA_fiGARCH = GARCH_acc,
+  TBATS = TBATS_acc)
 ```
 
-Manually calculating MASE for ARIMA-fiGARCH:
+Manually calculating MASE for SARIMA-fiGARCH:
 ```{r}
 # Naive forecast errors from training set
-naive_errors <- diff(time_series_data)  # Assuming naive one-step forecasts
+naive_errors <- time_series_data  # Assuming naive one-step forecasts
 
 # MAE from naive model
 mae_naive <- mean(abs(naive_errors))
 
-# MAE from the ARIMA-GARCH forecast
+# MAE from the SARIMA-fiGARCH forecast
 mae_garch <- mean(abs(Val_time_series - as.numeric(forecast_GARCH)))
 
-# MASE for ARIMA GARCH
+# MASE for SARIMA-fiGARCH
 mase_garch <- mae_garch / mae_naive
 ```
 
@@ -1179,15 +1196,17 @@ acc_df %>% arrange(MASE) %>% mutate(across(where(is.numeric), ~ round(.x, digits
 
 The ARIMA model has the best ME, RMSE, MAE, MPE, MAPE, MASE and Theil's U. It had the second best ACF1. ARIMA was the most accurate forecasting model.
 
-The worst model was ARIMA-GARCH with the worst performance on every metric.
+The worst model was SARIMA-fiGARCH with the worst performance on every metric except for Theil's U. The SARIMA-fiGARCH had a Theil's U of 1 indicating that it performs equally to a naive forecast.
 
 SARIMA and STL-ARIMA had similar performance with SARIMA having a slightly lower value for most metrics. STL-ARIMA had the lower values for ME and MPE though.
 
 The SARIMAX model with the (ARIMA(3,0,1)(1,1,0)[48] with drift) forecasted energy generation variable in its xreg (labeled SARIMAX_model2), performed similarly to SARIMAX with the actual values for energy generation in its xreg. There is an average difference of 0.05 between the performances. This tells me that the use of an estimated Energy_generation variable does not harm model performance significantly.
 
+TBATS performed worse than every other model except for SARIMA-fiGARCH on all metrics other than MPE. TBATS had the 4th best MPE out of the seven models.
+
 All models have ACF1 values of 0.65 or larger indicating a strong positive autocorrelation at lag 1, this suggests that every model fitted has not yet captured all autocorrelation in the time series. Ideally, residuals should resemble white noise (where ACF1 approximately equals 0). During model refinement I will try adding more AR and MA terms to try and capture this autocorrelation. I will also reassess the differencing order to see if the series needs further transformation.
 
-The MASE for all models, except for ARIMA-GARCH, is less than 1 which means they beat a naive "yesterday's price" benchmark on average absolute error. On average, these models are producing more precise forecasts than simply carrying forward the last known value.
+The MASE for all models, except for SARIMA-fiGARCH, is less than 1 which means they beat a naive "yesterday's price" benchmark on average absolute error. On average, these models are producing more precise forecasts than simply carrying forward the last known value.
 
 The best model so far is the ARIMA(3,1,1) model.
 
@@ -1208,7 +1227,7 @@ The mean absolute percentage error was 15.29% which means that the models foreca
 
 The models ACF1 was 0.65 which indicates that the residuals are moderately autocorrelated so there is some structure or pattern in the data that the model did not capture.
 
-The ARIMA model did better than the STL-ARIMA, SARIMAX and ARIMA-GARCH models which so far shows that a more complex model does not equal a better performance, those other models were overfitting on the training data and not generalizing well enough to forecast the following year.
+The ARIMA model did better than the STL-ARIMA, SARIMAX and SARIMA-fiGARCH models which so far shows that a more complex model does not equal a better performance, those other models were overfitting on the training data and not generalizing well enough to forecast the following year.
 
 Theil's U is 1.38 which means that the ARIMA models forecasts are slightly worse than the naive forecasts, but this could be due to RMSE sensitivity (Theil's U is sensitive to large errors).
 
@@ -1269,6 +1288,8 @@ saveRDS(SARIMA_model1, file = "Models/Initial models from training/sarima_model.
 saveRDS(STL_ARIMA_model1, file = "Models/Initial models from training/stl_arima_model.rds")
 saveRDS(SARIMAX_model1, file = "Models/Initial models from training/SARIMAX_model.rds")
 saveRDS(GARCH_model, file = "Models/Initial models from training/garch_model.rds")
+saveRDS(Tbats_model, file = "Models/Initial models from training/Tbats_model.rds")
+
 
 # Saving SARIMAX with xreg (done because future xreg contains forecasted variable)
 saveRDS(list(model = SARIMAX_model1, future_xreg = xreg_future2), "Models/Initial models from training/arima_with_xreg.rds")
@@ -1289,7 +1310,6 @@ write.csv(val_set, "Saved_Datasets/Val_set.csv", row.names = FALSE)
 write.csv(xreg, "Saved_Datasets/xreg.csv", row.names = FALSE)
 write.csv(xreg_future2, "Saved_Datasets/xreg_future.csv", row.names = FALSE)
 
-
 ```
 
 Saving forecasts:
@@ -1300,6 +1320,7 @@ saveRDS(forecast_SARIMA, file = "Saved_Forecasts/forecast_SARIMA.rds")
 saveRDS(forecast_STL, file = "Saved_Forecasts/forecast_STL.rds")
 saveRDS(forecast_SARIMAX2, file = "Saved_Forecasts/forecast_SARIMAX.rds")
 saveRDS(forecast_GARCH, file = "Saved_Forecasts/forecast_GARCH.rds")
+saveRDS(forecast_TBATS, file = "Saved_Forecasts/forecast_TBATS.rds")
 ```
 
 

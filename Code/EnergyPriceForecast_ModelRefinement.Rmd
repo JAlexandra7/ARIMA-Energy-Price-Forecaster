@@ -1,6 +1,6 @@
 ---
-title: "2nd half of project"
-author: "JAlexandra"
+title: "Energy Price Forecasting: Model Validation"
+author: "J Alexandra"
 date: "2025-07-17"
 output: pdf_document
 ---
@@ -18,7 +18,11 @@ library(tseries)
 library(nortest)
 library(purrr) 
 library(FinTS)
-library(forecast)})
+library(rugarch)
+library(ggplot2)
+library(reshape2)
+library(forecast)
+  })
 ```
 
 Ensuring reproducibility of results:
@@ -30,12 +34,12 @@ set.seed(48)
 ```{r}
 ARIMA_model1 <- readRDS("models/Initial models from training/arima_model.rds")
 SARIMAX_model_fx <- readRDS("models/Initial models from training/arima_with_xreg.rds")
-SARIMAX_model1 <- readRDS("models/Initial models from training/arimax_model.rds")
+SARIMAX_model1 <- readRDS("models/Initial models from training/SARIMAX_model.rds")
 Energy_generation_model <- readRDS("models/Initial models from training/Energy_generation_model.rds")
 GARCH_model <- readRDS("models/Initial models from training/garch_model.rds")
 SARIMA_model1 <- readRDS("models/Initial models from training/sarima_model.rds")
 STL_ARIMA_model1 <- readRDS("models/Initial models from training/stl_arima_model.rds")
-
+TBATS_model1 <- readRDS("models/Initial models from training/Tbats_model.rds")
 ```
 
 ```{r}
@@ -312,6 +316,8 @@ checkresiduals(SARIMAX_model1)
 ```
 The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there is autocorrelation in the residuals.
 
+The ACF plot shows lags outside the confidence bounds, particularly at lag 48 and around lag 96
+
 ```{r}
 acf(residuals(SARIMAX_model1), lag.max = 10000)
 ```
@@ -376,6 +382,152 @@ Mod(polyroot(sma_coefs))
 For invertibility, the modulus (absolute value) of all roots must be larger than 1.
 
 All of these are well outside the unit circle (i.e. modulus > 1), which means the SARIMAX model satisfies the invertibility condition for both the non-seasonal and seasonal MA components.
+
+### Assessing variable significance using a  t-test for regression coefficients.
+
+```{r}
+summary(SARIMAX_model1)
+```
+Calculating t-values (coefficient / standard error) and approximate p-values:
+```{r}
+t_values <- data.frame(variables = c("Energy_generation", "SeasonSpring", "SeasonSummer", "SeasonWinter", "Is_Weekend"),
+                       coefficient = c(32.5625, 17.1364, 5.0377, 8.9367, 0.9156),
+                       standard_error = c(1.4108, 13.8609, 12.0068, 12.0052, 1.4094)
+                       )
+t_values$t_values <- t_values$coefficient / t_values$standard_error
+
+n = 17520 # observations
+k = 10 # estimated parameters: 2 AR terms + 2 MA terms + 1 seasonal MA term + 5 regressors
+
+t_values$p_values <- 2 * (1 - pt(abs(t_values$t_values), df = n - k))
+t_values
+```
+
+The Energy_generation variable at the 5% significance level is statistically significant as its p-value is much smaller than 0.05
+
+This tells me that the Energy_generation variable is a strong predictor in my model.
+
+The variables SeasonSpring, SeasonSummer, SeasonWinter, and Is_Weekend are not statistically significant as their p-values are larger than the significance level of 0.05.
+
+## SARIMA-fiGARCH
+
+Ljung-Box test:
+
+Null hypothesis: There is no autocorrelation in the residuals.
+
+Alternative hypothesis: There is autocorrelation in the residuals.
+
+Autocorrelation check with Ljung Box test, acf and pacf plots:
+```{r}
+Box.test(residuals(GARCH_model), lag = 20, type = "Ljung")
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there is autocorrelation in the residuals.
+
+```{r}
+acf(residuals(GARCH_model))
+```
+There are a lot of spikes outside the confidence bounds between lags 0 and 100,000 particularly, this gradually tapers off as the lags increase. Due to this I will be increasing the MA terms.
+
+```{r}
+pacf(residuals(GARCH_model))
+```
+In the partial autocorrelation plot, there are many spikes that are outside the confidence bounds, particularly at around lag 1, lag 400,000 and lag 800,000. This then gradually tapers off. This means that there is still some autocorrelation in the residuals, this is supported by the ACF1 value of 0.91 from the previous evaluation of the model on the validation set. Due to this I will be increasing the AR term.
+
+Anderson-Darling normality test:
+
+Null hypothesis: The residuals follow a normal distribution.
+
+Alternative hypothesis: The residuals deviate significantly from a normal distribution.
+
+```{r}
+ad.test(as.numeric(residuals(GARCH_model)))
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that the residuals deviate significantly from a normal distribution.
+
+ARCH test on residuals:
+
+Null Hypothesis: No ARCH effects in the residuals (the variance is constant over time (homoscedastic)).
+
+Alternative Hypothesis: ARCH effects are present (the residual variance changes over time and depends on past squared residuals (heteroskedasticity)).
+
+```{r}
+ArchTest(residuals(GARCH_model), lags = 48)
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there are ARCH effects present in the residuals (the residual variance changes over time and depends on past squared residuals (heteroskedasticity).
+
+Checking for constant variance in plot:
+```{r}
+plot(residuals(GARCH_model) ~ fitted(GARCH_model))
+```
+
+Checking the mean of the residuals is reasonably close to zero with a one sample t-test:
+```{r}
+t.test(as.numeric(residuals(GARCH_model)), mu = 0)
+```
+The p-value is much larger than the significance level of 0.05 which means that I fail to reject the null hypothesis and conclude that the mean of the residuals is reasonably close to zero.
+
+Checking that the time series is invertible. I've already checked that if SARIMA model is invertible, so I am only going to check if the fiGARCH part of the model is invertible. To do this I am checking if d the fractional differencing parameter is bigger than 0 and smaller than 1
+
+```{r}
+coef(GARCH_model)
+```
+d = 0.6 which means that the fiGARCH part is invertible.
+
+## TBATS
+
+```{r}
+summary(TBATS_model1)
+```
+
+Ljung-Box test:
+
+Null hypothesis: There is no autocorrelation in the residuals.
+
+Alternative hypothesis: There is autocorrelation in the residuals.
+
+Autocorrelation check with Ljung Box test, acf and pacf plots:
+```{r}
+checkresiduals(TBATS_model1)
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there is autocorrelation in the residuals.
+
+```{r}
+acf(residuals(TBATS_model1), lag.max = 10000)
+```
+There are a lot of spikes outside the confidence bounds between lags 0 and 25 particularly, this gradually tapers off as the lags increase.
+
+```{r}
+pacf(residuals(TBATS_model1), lag.max = 10000)
+```
+In the partial autocorrelation plot, there are many spikes that are outside the confidence bounds, particularly at around lag 1, and lag 20. This then gradually tapers off. This means that there is still some autocorrelation in the residuals, this is supported by the ACF1 value of 0.70 from the previous evaluation of the model on the validation set. Unfortunately, even though there is clearly autocorrelation in the residuals, I can't manually adjust the AR and MA terms in my TBATS model. To resolve this I am going to consider hybrid models.
+
+Anderson-Darling normality test:
+
+Null hypothesis: The residuals follow a normal distribution.
+
+Alternative hypothesis: The residuals deviate significantly from a normal distribution.
+
+```{r}
+ad.test(residuals(TBATS_model1))
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that the residuals deviate significantly from a normal distribution.
+
+ARCH test on residuals:
+
+Null Hypothesis: No ARCH effects in the residuals (the variance is constant over time (homoscedastic)).
+
+Alternative Hypothesis: ARCH effects are present (the residual variance changes over time and depends on past squared residuals (heteroskedasticity)).
+
+```{r}
+ArchTest(residuals(TBATS_model1), lags = 48)
+```
+The p-value is much smaller than the significance level of 0.05, I reject the null hypothesis and conclude that there are ARCH effects present in the residuals (the residual variance changes over time and depends on past squared residuals (heteroskedasticity).
+
+Checking the mean of the residuals is reasonably close to zero with a one sample t-test:
+```{r}
+t.test(residuals(TBATS_model1), mu = 0)
+```
+The p-value is much larger than the significance level of 0.05 which means that I fail to reject the null hypothesis and conclude that the mean of the residuals is reasonably close to zero.
 
 # Model refinement
 For every single model the residuals showed autocorrelation, non-normality and had ARCH effects (non constant variance).
@@ -564,11 +716,9 @@ SARIMAX_model8 <- Arima(time_series_data, order = c(3,1,3), seasonal = list(orde
 ```
 
 ### Adding new variables to the xreg for SARIMAX
-I will be adding two variables to the xreg for SARIMAX; bids for electricity and fuel prices (natural gas)
+#### Bids
+I obtained this data from the Electricity Authority on their Wholesale datasets: Bids page.
 
-ISSUE: - Volume of bids/offers or spread between bid and ask prices in energy exchanges
-
-ISSUE: add variables to xreg_new
 Loading data:
 ```{r}
 csv_folder <- "Energy Bids/2017"
@@ -579,30 +729,445 @@ head(Energy_Bids_2017)
 ```
 
 ```{r}
+Energy_Bids_2017$TradingDate <- as.Date(Energy_Bids_2017$TradingDate)
+```
+
+Summarizing the data and removing place holder bids (where no megawatts of energy were bid on)
+```{r}
 summary_counts <- Energy_Bids_2017 %>%
   filter(Megawatts > 0) %>% # Removing place holder bids (where no megawatts of energy were bid on)
   group_by(TradingDate, TradingPeriod) %>%
   summarise(Bid_Volume = n(), .groups = 'drop')
 
-# View the result
 print(summary_counts)
 ```
 
-
 ```{r}
-xreg_new = xreg
+Bid_Vol <- summary_counts$Bid_Volume
 ```
 
 ```{r}
-SARIMAX_model3 <- Arima(time_series_data, order = c(2,1,2), seasonal = list(order = c(0, 0, 1), period = 48),
-xreg = xreg_new)
+plot(Bid_Vol)
 ```
 
+#### Temperature
+I obtained this data from the Ministry for the Environment.
 
+```{r}
+temperature <- read.csv("Temperature/daily-temperature-1909-2019.csv")
+head(temperature)
+```
 
-### Fitting models
-SARIMAX with the new xreg (season, energy generation and Is_weekend, issue):
+I am going to restrict the dataset to temperature values in 2017.
 
+```{r}
+temperature$date <- as.Date(temperature$date)
+temperature <- temperature[format(temperature$date, "%Y") == 2017, ]
+```
+
+```{r}
+unique(temperature$station_name_niwa)
+```
+This project is only using the ABY0111 point of connection which is in the Albury area. The closest automatic weather station to Albury is Timaru Aero Aws and this is therefor the closest temperature reading for the Albury area. I will be restricting the dataset to this AWS.
+
+```{r}
+temperature <- temperature[temperature$station_name_niwa == "Timaru Aero Aws", ]
+head(temperature)
+```
+I am going to use this temperature data to make the HDD (heating degree days) and CDD (cooling degree days) variables to reflect winter heating demand and summer cooling demand. This should improve the models accuracy by accounting for temperature based energy demand. The base temperature will be 18 Celsius as that is the recommended base temperature for calculating HDD according to Consumer NZ (Consumer NZ, 31 Jan 2019).
+
+Because I only have 3 observations per day (minimum, maximum and average) then I am going to interpolate the rest of temperature values using a two phase sine curve.
+
+The minimum daily temperature is typically just before sunrise, sunrise is typically around 7am. About an hour before that at 6am will be the assumed minimum temperature time. For the curve the index for the minimum temperature will be 12.
+
+The maximum daily temperature is typically in the afternoon when the sun is at its peak, I think this would be around 3 pm. For the curve the index for the maximum temperature will be 30.
+
+This function will use the daily minimum, maximum and average temperatures to generate the temperatures for 48 half hour periods for a day.
+```{r}
+generate_halfhour <- function(Tmin, Tmax, Tmean, tau_min = 12, tau_max = 30) {
+  h <- 0:47
+  
+  # Rising from Tmin to Tmax
+  rising <- (h >= tau_min & h <= tau_max)
+  y <- numeric(48)
+  y[rising] <- Tmin + (Tmax - Tmin) * sin(pi * (h[rising] - tau_min) / (tau_max - tau_min))
+  # Falling from Tmax back to next day's Tmin
+  falling <- !rising
+  span2   <- 48 - (tau_max - tau_min)
+  y[falling] <- Tmin + (Tmax - Tmin) * cos(pi * (h[falling] - tau_max) / span2)
+  
+  # Shift so that the daily mean matches Tmean
+  y + (Tmean - mean(y))
+}
+```
+
+Making min, max and average temperature into vectors:
+```{r}
+tmean <- temperature[temperature$statistic == "Average", 4]
+tmin <- temperature[temperature$statistic == "Minimum", 4]
+tmax <- temperature[temperature$statistic == "Maximum", 4]
+```
+
+This function will generature 48 half hourly temeperatures for multiple days, given a min, max and average temperature.
+```{r}
+# tmin, tmax, tmean are numeric vectors of length N_days
+all_days <- mapply(
+  generate_halfhour,
+  Tmin  = tmin,
+  Tmax  = tmax,
+  Tmean = tmean,
+  MoreArgs = list(tau_min = 12, tau_max = 30),
+  SIMPLIFY = FALSE
+)
+
+# Binding the temperature values into a single long vector:
+half_hourly_temp <- unlist(all_days)
+length(half_hourly_temp)  # should be N_days * 48
+```
+```{r}
+plot(half_hourly_temp)
+```
+
+Getting CDD and HDD from temperature:
+```{r}
+HDD <- pmax(0, 18 - half_hourly_temp)
+CDD <- pmax(0, half_hourly_temp - 18)
+```
+
+#### Fuel prices
+Weekly fuel price monitoring data was obtained from the Ministry of Business, Innovation and Employment.
+
+```{r}
+fuel_price <- read.csv("Temperature/weekly-table.csv")
+head(fuel_price)
+```
+I'm restricting the data to final diesel prices for 2017 in NZD. I will be using the ETS (emissions trading scheme) price as an exogenous variables for my SARIMAX.
+
+ETS prices affect energy generation costs because electricity generators have to pay for carbon emissions. This will have a knock on effect on wholesale energy prices.
+
+```{r}
+fuel_price$Date <- as.Date(fuel_price$Date)
+fuel_price <- fuel_price[format(fuel_price$Date, "%Y") == 2017, ]
+fuel_price <- fuel_price[fuel_price$Variable == "ETS", ]
+fuel_price <- fuel_price[fuel_price$Fuel == "Diesel", ]
+```
+
+```{r}
+head(fuel_price)
+```
+
+I have the ETS price in NZD for each week in 2017, since my data is 48 trading periods for each day I will need to adjust the variable.
+
+```{r}
+ETS <- fuel_price$Value
+ETS <- lapply(ETS, function(x) rep(x, 48*7))
+ETS <- unlist(ETS)
+ETS <- c(ETS, rep(tail(ETS, 48)))
+```
+
+##### Energy generation based on fuel type
+
+```{r}
+csv_files <- list.files(path = "Energy Generation", pattern = "*.csv", full.names = TRUE)
+
+Generation <- csv_files %>% lapply(read.csv) %>% bind_rows()
+
+Generation_Overall_Output <- Generation[, -c(56, 57)] %>%
+  pivot_longer(
+    cols = matches("^TP\\d+$"), # gets all the trading period columns (TP1 to TP50)
+    names_to = "TradingPeriod", # makes a new column containing the old period column names
+    names_prefix = "TP", # removes the "TP" prefix from all rows in the TradingPeriod column
+    values_to = "Energy_output" # makes a new column for site energy output
+  ) %>%
+  mutate(
+    TradingPeriod = as.integer(TradingPeriod),  # converting the TradingPeriod values to integers
+    Trading_date = as.Date(Trading_date)  # converting Trading_date into a date object
+  ) %>%
+  group_by(Trading_date, TradingPeriod, Fuel_Code) %>%
+  # Treats each unique combination of trading date, trading period and fuel code as its own group
+  summarise(
+    Energy_output = sum(Energy_output, na.r9m = TRUE),
+  # calculates the total energy output for that trading date, period and fuel type)
+  # each group by summing the energy output values across all sites
+    .groups = "drop"
+  )
+
+head(Generation_Overall_Output, 7)
+```
+
+There isn't any coal or diesel based energy generation for 2017, this could be because the EMI only reports grid connected energy generation.
+
+Because diesel was not used for grid connected electricity generation in 2017, then diesel ETS prices are not useful for the model.
+
+I was not able to find ETS pricing for other fuels such as gas, geothermal and wood, because of this I have excluded ETS pricing from the model even though ETS prices are important for estimating Energy prices.
+
+#### Gas Prices
+Since around 95% of natural gas in NZ is sold under long term contracts, then most natural gas prices aren't publicly available. However about 5% of natural gas in NZ is traded on the spot market (via emsTradepoint). The spot market prices aren't representative of the whole market, but the spot market prices will still help my model forecast energy prices because natural gas sets the marginal price, as natural gas is the most expensive fuel type for energy generation in NZ. 
+Including natural gas prices in my model will help to capture fuel supply shocks and price spikes that drive marginal generation costs.
+
+Data was obtained from emsTradepoint.
+
+```{r}
+gas_prices <- read.csv("Gas Prices/gas_prices.csv")
+head(gas_prices)
+```
+
+```{r}
+plot(x = gas_prices$prices)
+```
+I can see from this plot that natural gas prices generally increase over time.
+
+Since I only have the natural gas price for each month of 2017 and my data is 48 trading periods for each day I am adjusting the variable by repeating each gas price about 30 times (1 for each day) and then another 48 times (1 for each trading period).
+
+```{r}
+Gas_Price <- gas_prices[gas_prices$year == 2017, "prices"]
+Gas_Price <- lapply(Gas_Price, function(x) rep(x, 30*48))
+Gas_Price <- unlist(Gas_Price)
+Gas_Price <- c(Gas_Price, rep(tail(Gas_Price, 240)))
+```
+
+Combining gas price with the amount of energy generated using natural gas:
+```{r}
+Gas_Gen <- Generation_Overall_Output[Generation_Overall_Output$Fuel_Code == "Gas", ]
+# Checking for NA's
+which(is.na(Gas_Gen), arr.ind = TRUE)
+```
+
+```{r}
+Gas_Gen[12814:12817, ]
+```
+
+Using linear interpolation to fill gap:
+```{r}
+# finding the row just before period 47 on 2017-09-24
+i_prev <- which(Gas_Gen$Trading_date == as.Date("2017-09-24") &
+                Gas_Gen$TradingPeriod == 46)
+
+# Computing the two interpolated values: 
+# Extracting the two known prices
+price_prev <- Gas_Gen$Energy_output[i_prev]
+price_next <- Gas_Gen$Energy_output[i_prev + 3]
+
+# runing approx() over the X = {46,49} → Y = {prev,next}, get Y at Xout = {47,48}
+interp <- approx(
+  x    = c(46, 49),
+  y    = c(price_prev, price_next),
+  xout = c(47, 48),
+  method = "linear"
+)
+
+# interp$x == c(47,48); interp$y == interpolated prices
+interp
+```
+```{r}
+Gas_Gen[12815, 4] <- 181925.1
+Gas_Gen[12816, 4] <- 184504.5
+```
+
+```{r}
+Gas_Gen <- Gas_Gen$Energy_output
+plot(Gas_Gen)
+```
+
+```{r}
+Gas_PG <- Gas_Gen * Gas_Price
+Gas_PG_scaled <- Gas_PG / 1e6
+```
+
+```{r}
+plot(Gas_PG_scaled)
+```
+
+### Fitting models with different xreg's
+Fitting SARIMAX with different xreg's
+
+```{r}
+E_gen <- xreg[, 1]
+week_day <- xreg[, 5]
+
+all_variables <- cbind(E_gen, Bid_Vol, HDD, CDD, Gas_Price, week_day, Gas_PG_scaled, half_hourly_temp)
+```
+
+Checking feature correlation with response:
+```{r}
+numeric_vars <- data.frame(all_variables, as.numeric(time_series_data))
+cor_matrix1 <- cor(numeric_vars, use = "complete.obs")
+cor_matrix <- melt(cor_matrix1)
+
+ggplot(data = cor_matrix, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  geom_text(aes(label = round(value, 2)), color = "black", size = 5) +
+  scale_fill_distiller(palette = "Spectral") +
+  labs(title = "Correlation Heatmap of Numerical xreg variables", x = NULL, y = NULL) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+The Gas Price variable and the Gas price * Energy Generation variable are strongly correlated with a correlation of 0.84
+
+The half_hourly_temp variable is strongly correlated with HDD, CDD and moderately correlated with E_gen.
+
+The reason was half_hourly_temp is moderately correlated with E_gen is presumably because some of the electricity generated will be from solar power. More solar power will be generated in the day when temperatures higher so there will be some correlation between these two variables.
+
+HDD is moderately correlated with E_gen, presumably for similar reasons to those already stated above.
+
+Gas_Price is strongly correlated with Gas_PG_Scaled. Since Gas_PG_scaled is simply Gas_Price * Gas based Energy generation then this isn't surprising.
+
+None of the other variables are strongly correlated with each other.
+
+Variables that are strongly correlated with each other will not be placed in the same model to avoid multicollinearity.
+
+```{r}
+xreg_9 <- cbind(E_gen, Bid_Vol, HDD, CDD, Gas_Price)
+
+SARIMAX_model9 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = xreg_9,
+                                 d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
+```
+
+```{r}
+xreg_10 <- cbind(Bid_Vol, HDD, CDD, Gas_PG_scaled)
+
+SARIMAX_model10 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = xreg_10,
+                                 d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
+```
+
+Using PCA components:
+```{r}
+all_variables <- cbind(E_gen, Bid_Vol, Gas_Price, week_day, Gas_PG_scaled, half_hourly_temp)
+
+pca_mod <- prcomp(scale(all_variables), center = FALSE, scale. = FALSE)
+
+var_explained <- pca_mod$sdev^2 / sum(pca_mod$sdev^2)
+
+plot(cumsum(var_explained), type = "b",
+     xlab = "Number of PCs", ylab = "Cumulative Variance",
+     main = "PCA Variance Explained")
+abline(h = 0.9, lty = 2, col = "red")
+
+```
+90% of the variance is captured by around 4 principal components.
+
+```{r}
+PC_scores <- as.data.frame(pca_mod$x[, 1:4])
+colnames(PC_scores) <- paste0("PC", 1:4)
+
+# Converting to a time series object
+PC_ts <- ts(PC_scores, start = c(2017, 1), frequency = frequency(48))
+```
+
+```{r}
+SARIMAX_model11 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = PC_ts,
+                                 d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
+```
+
+```{r}
+xreg_12 <- cbind(E_gen, HDD, Gas_PG_scaled)
+
+SARIMAX_model12 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = xreg_12,
+                                 d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
+```
+
+```{r}
+xreg_13 <- cbind(E_gen, Bid_Vol, HDD, Gas_PG_scaled)
+
+SARIMAX_model13 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = xreg_13,
+                                 d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
+```
+
+```{r}
+xreg_14 <- cbind(E_gen, Bid_Vol, half_hourly_temp, Gas_PG_scaled)
+
+SARIMAX_model14 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = xreg_14,
+                                 d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
+```
+
+## TBATS
+Training a TBATS model on cleaned data (removing outliers)
+```{r}
+outliers  <- tsoutliers(time_series_data)
+cleaned_ts <- replace(time_series_data, outliers$index, outliers$replacements)
+TBATS_model_2 <- tbats(cleaned_ts)
+```
+
+```{r}
+show(TBATS_model_2)
+```
+
+## SARIMA-fiGARCH
+
+Extracting the residuals from my sarima model:
+```{r}
+residuals_sarima <- residuals(SARIMA_model1)
+
+spec <- ugarchspec(
+  variance.model = list(model = "fiGARCH", garchOrder = c(1, 1)),
+  mean.model     = list(armaOrder = c(1, 0)),
+  distribution.model = "ged")
+
+GARCH_model_Sarima <- ugarchfit(spec = spec, data = residuals_sarima, solver = "hybrid")
+show(GARCH_model_Sarima)
+```
+
+Extracting the residuals from my SARIMAX model:
+```{r}
+residuals_sarimax <- residuals(SARIMAX_model1)
+
+spec <- ugarchspec(
+  variance.model = list(model = "fiGARCH", garchOrder = c(1, 1)),
+  mean.model     = list(armaOrder = c(1, 0)),
+  distribution.model = "ged")
+
+GARCH_model_Sarimax <- ugarchfit(spec = spec, data = residuals_sarimax, solver = "hybrid")
+show(GARCH_model_Sarimax)
+```
+
+Extracting the residuals from my TBATS model:
+```{r}
+residuals_TBATS <- residuals(TBATS_model_2)
+
+spec <- ugarchspec(
+  variance.model = list(model = "fiGARCH", garchOrder = c(1, 1)),
+  mean.model     = list(armaOrder = c(1, 0)),
+  distribution.model = "ged")
+
+GARCH_model_TBATS <- ugarchfit(spec = spec, data = residuals_TBATS, solver = "hybrid")
+show(GARCH_model_TBATS)
+```
+
+Increasing the AR and MA terms for SARIMA-fiGARCH
+```{r}
+residuals_sarima2 <- residuals(SARIMA_model1)
+
+spec <- ugarchspec(
+  variance.model = list(model = "fiGARCH", garchOrder = c(1, 2)),
+  mean.model     = list(armaOrder = c(2, 1)),
+  distribution.model = "ged")
+
+GARCH_model_Sarima2 <- ugarchfit(spec = spec, data = residuals_sarima2, solver = "hybrid")
+show(GARCH_model_Sarima2)
+```
+
+```{r}
+residuals_sarima3 <- residuals(SARIMA_model1)
+
+spec <- ugarchspec(
+  variance.model = list(model = "fiGARCH", garchOrder = c(1, 1)),
+  mean.model     = list(armaOrder = c(2, 1)),
+  distribution.model = "ged")
+
+GARCH_model_Sarima3 <- ugarchfit(spec = spec, data = residuals_sarima3, solver = "hybrid")
+show(GARCH_model_Sarima3)
+```
+
+```{r}
+residuals_sarima4 <- residuals(SARIMA_model1)
+
+spec <- ugarchspec(
+  variance.model = list(model = "fiGARCH", garchOrder = c(2, 1)),
+  mean.model     = list(armaOrder = c(2, 0)),
+  distribution.model = "ged")
+
+GARCH_model_Sarima4 <- ugarchfit(spec = spec, data = residuals_sarima4, solver = "hybrid")
+show(GARCH_model_Sarima4)
+```
 
 # Reevaluation on Validation set
 ## Forecasting
@@ -622,6 +1187,7 @@ Forecasting_model <- function(model, h, is_box = FALSE) {
 ```{r}
 forecast_ARIMA2 <- Forecasting_model(ARIMA_model2, 17520, is_box = TRUE)
 ```
+
 ```{r}
 forecast_ARIMA3 <- Forecasting_model(ARIMA_model3, 17520, is_box = TRUE)
 ```
@@ -754,6 +1320,160 @@ forecast_SARIMAX7 <- Forecasting_model_X(SARIMAX_model7, 17520, is_box = FALSE, 
 forecast_SARIMAX8 <- Forecasting_model_X(SARIMAX_model8, 17520, is_box = FALSE, xreg_future)
 ```
 
+#### SARIMAX with different xreg
+Making future xreg for forecasting:
+
+I'm re-using the 2018 forecasts I made for energy generation and weekday from the model training file.
+
+I'm making forecasts for Bid Volume, HDD, CDD, Gas prices, and Gas prices * Energy generation using natural gas.
+```{r}
+Bid_Vol_est <- auto.arima(Bid_Vol, approximation = TRUE)
+Gas_Price_est <- auto.arima(Gas_Price, approximation = TRUE)
+Gas_PG_scaled_est <- auto.arima(Gas_PG_scaled, approximation = TRUE)
+# I'm making a temperature model and forecast, then obtaining HDD and CDD from this.
+temperature_est <- auto.arima(half_hourly_temp, approximation = TRUE)
+```
+
+```{r}
+BID_forecast <- forecast(Bid_Vol_est, h = 17520)
+temperature_forecast <- forecast(temperature_est, h = 17520)
+HDD_forecast <- pmax(0, 18 - temperature_forecast$mean)
+CDD_forecast <- pmax(0, temperature_forecast$mean - 18)
+Gas_Price_forecast <- forecast(Gas_Price_est, h = 17520)
+Gas_PG_scaled_forecast <- forecast(Gas_PG_scaled_est, h = 17520)
+```
+
+PCA components:
+```{r}
+EGen_est <- xreg_future[,1]
+Week_day_est <- xreg_future[,5]
+
+all_variables_est <- cbind(as.numeric(EGen_est), 
+                            as.numeric(BID_forecast$mean),
+                            as.numeric(Gas_Price_forecast$mean),
+                            as.numeric(Week_day_est),
+                            as.numeric(Gas_PG_scaled_forecast$mean),
+                            as.numeric(temperature_forecast$mean))
+
+all_variables_scaled <- scale(all_variables_est)
+
+PC_new <- as.matrix(all_variables_scaled) %*% pca_mod$rotation
+PC_new <- PC_new[, 1:4]
+PC_new_ts <- ts(PC_new, start = c(2018, 1) + c(0,1), frequency = frequency(48))
+```
+
+```{r}
+xreg_future_9 <- cbind(as.numeric(EGen_est), 
+                         as.numeric(BID_forecast$mean),
+                         as.numeric(HDD_forecast), 
+                         as.numeric(CDD_forecast),
+                         as.numeric(Gas_Price_forecast$mean)
+                         )
+
+xreg_future_10 <- cbind(as.numeric(BID_forecast$mean),
+                        as.numeric(HDD_forecast), 
+                        as.numeric(CDD_forecast),
+                        as.numeric(Gas_PG_scaled_forecast$mean)
+                         )
+
+xreg_future_12 <- cbind(as.numeric(EGen_est),
+                        as.numeric(HDD_forecast),
+                        as.numeric(Gas_PG_scaled_forecast$mean)
+                         )
+
+xreg_future_13 <- cbind(as.numeric(EGen_est),
+                        as.numeric(BID_forecast$mean),
+                        as.numeric(HDD_forecast), 
+                        as.numeric(Gas_PG_scaled_forecast$mean)
+                         )
+
+xreg_future_14 <- cbind(as.numeric(EGen_est),
+                        as.numeric(BID_forecast$mean),
+                        as.numeric(temperature_forecast$mean), 
+                        as.numeric(Gas_PG_scaled_forecast$mean)
+                         )
+```
+
+Ensuring the future xreg contains the same names as the xreg used for training.
+```{r}
+colnames(xreg_9)
+colnames(xreg_future_9)
+colnames(xreg_10)
+colnames(xreg_future_10)
+colnames(xreg_12)
+colnames(xreg_future_12)
+colnames(xreg_13)
+colnames(xreg_future_13)
+colnames(xreg_14)
+colnames(xreg_future_14)
+```
+
+```{r}
+colnames(xreg_future_9) <- c("E_gen", "Bid_Vol", "HDD", "CDD", "Gas_Price")
+colnames(xreg_future_10) <- c("Bid_Vol", "HDD", "CDD", "Gas_PG_scaled")
+colnames(xreg_future_12) <- c("E_gen", "HDD", "Gas_PG_scaled")
+colnames(xreg_future_13) <- c("E_gen", "Bid_Vol", "HDD", "Gas_PG_scaled")
+colnames(xreg_future_14) <- c("E_gen", "Bid_Vol", "half_hourly_temp", "Gas_PG_scaled")
+```
+
+```{r}
+SARIM_forecast <- forecast(SARIMAX_model9, h = 17520, xreg = xreg_future_9)
+Forecast_SARIMAX_9 <- ts(SARIM_forecast$mean, start = c(2018, 1), frequency = 48)
+
+SARIM_forecast2 <- forecast(SARIMAX_model10, h = 17520, xreg = xreg_future_10)
+Forecast_SARIMAX_10 <- ts(SARIM_forecast2$mean, start = c(2018, 1), frequency = 48)
+
+SARIM_forecast3 <- forecast(SARIMAX_model11, h = 17520, xreg = PC_new_ts)
+Forecast_SARIMAX_11 <- ts(SARIM_forecast3$mean, start = c(2018, 1), frequency = 48)
+
+SARIM_forecast4 <- forecast(SARIMAX_model12, h = 17520, xreg = xreg_future_12)
+Forecast_SARIMAX_12 <- ts(SARIM_forecast4$mean, start = c(2018, 1), frequency = 48)
+
+SARIM_forecast5 <- forecast(SARIMAX_model13, h = 17520, xreg = xreg_future_13)
+Forecast_SARIMAX_13 <- ts(SARIM_forecast5$mean, start = c(2018, 1), frequency = 48)
+
+SARIM_forecast6 <- forecast(SARIMAX_model14, h = 17520, xreg = xreg_future_14)
+Forecast_SARIMAX_14 <- ts(SARIM_forecast6$mean, start = c(2018, 1), frequency = 48)
+```
+
+### SARIMA-fiGARCH
+
+```{r}
+forecast_raw_Garch <- ugarchforecast(GARCH_model_Sarima, n.ahead = 17520)
+forecast_GARCH_SARIMA <- ts(fitted(forecast_raw_Garch), start = c(2018, 1), frequency = 48)
+```
+
+```{r}
+forecast_raw_Garch <- ugarchforecast(GARCH_model_1, n.ahead = 17520)
+forecast_GARCH_SARIMA2 <- ts(fitted(forecast_raw_Garch), start = c(2018, 1), frequency = 48)
+```
+
+```{r}
+forecast_raw_Garch <- ugarchforecast(GARCH_model_1, n.ahead = 17520)
+forecast_GARCH_SARIMA3 <- ts(fitted(forecast_raw_Garch), start = c(2018, 1), frequency = 48)
+```
+
+```{r}
+forecast_raw_Garch <- ugarchforecast(GARCH_model_1, n.ahead = 17520)
+forecast_GARCH_SARIMA4 <- ts(fitted(forecast_raw_Garch), start = c(2018, 1), frequency = 48)
+```
+
+```{r}
+forecast_raw_Garch <- ugarchforecast(GARCH_model_TBATS, n.ahead = 17520)
+forecast_GARCH_TBATS <- ts(fitted(forecast_raw_Garch), start = c(2018, 1), frequency = 48)
+```
+
+```{r}
+forecast_raw_Garch <- ugarchforecast(GARCH_model_Sarimax, n.ahead = 17520)
+forecast_GARCH_SARIMAX <- ts(fitted(forecast_raw_Garch), start = c(2018, 1), frequency = 48)
+```
+
+### TBATS
+
+```{r}
+forecast_TBATS2 <- forecast(TBATS_model_2, h = 17520)
+```
+
 ### Loading Original Models Forecasts
 ```{r}
 forecast_ARIMA <- readRDS("Saved_Forecasts/forecast_ARIMA.rds")
@@ -761,6 +1481,7 @@ forecast_SARIMA <- readRDS("Saved_Forecasts/forecast_SARIMA.rds")
 forecast_Stl_ARIMA <- readRDS("Saved_Forecasts/forecast_STL.rds")
 forecast_SARIMAX <- readRDS("Saved_Forecasts/forecast_SARIMAX.rds")
 forecast_GARCH <- readRDS("Saved_Forecasts/forecast_GARCH.rds")
+forecast_TBATS <- readRDS("Saved_Forecasts/forecast_TBATS.rds")
 ```
 
 ## Model accuracy:
@@ -788,7 +1509,6 @@ SARIMA9_acc <- accuracy(forecast_SARIMA9, Val_time_series)
 SARIMA10_acc <- accuracy(forecast_SARIMA10, Val_time_series)
 ```
 
-
 ```{r}
 STL_ARIMA_acc <- accuracy(forecast_Stl_ARIMA, Val_time_series)
 STL_ARIMA2_acc <- accuracy(forecast_STL2, Val_time_series)
@@ -809,8 +1529,28 @@ SARIMAX5_acc <- accuracy(forecast_SARIMAX5, Val_time_series)
 SARIMAX6_acc <- accuracy(forecast_SARIMAX6, Val_time_series)
 SARIMAX7_acc <- accuracy(forecast_SARIMAX7, Val_time_series)
 SARIMAX8_acc <- accuracy(forecast_SARIMAX8, Val_time_series)
+SARIMAX9_acc <- accuracy(Forecast_SARIMAX_9, Val_time_series)
+SARIMAX10_acc <- accuracy(Forecast_SARIMAX_10, Val_time_series)
+SARIMAX11_acc <- accuracy(Forecast_SARIMAX_11, Val_time_series)
+SARIMAX12_acc <- accuracy(Forecast_SARIMAX_12, Val_time_series)
+SARIMAX13_acc <- accuracy(Forecast_SARIMAX_13, Val_time_series)
+SARIMAX14_acc <- accuracy(Forecast_SARIMAX_14, Val_time_series)
 ```
 
+```{r}
+Garch_acc <- accuracy(forecast_GARCH, Val_time_series)
+Garch_acc_sarima <- accuracy(forecast_GARCH_SARIMA, Val_time_series)
+Garch_acc_sarima2 <- accuracy(forecast_GARCH_SARIMA2, Val_time_series)
+Garch_acc_sarima3 <- accuracy(forecast_GARCH_SARIMA3, Val_time_series)
+Garch_acc_sarima4 <- accuracy(forecast_GARCH_SARIMA4, Val_time_series)
+Garch_acc_TBATS <- accuracy(forecast_GARCH_TBATS, Val_time_series)
+Garch_acc_sarimax <- accuracy(forecast_GARCH_SARIMAX, Val_time_series)
+```
+
+```{r}
+TBATS_acc <- accuracy(forecast_TBATS, Val_time_series)
+TBATS_acc2 <- accuracy(forecast_TBATS2, Val_time_series)
+```
 
 ```{r}
 acc_list_A <- list(ARIMA  = ARIMA_acc, ARIMA2 = ARIMA2_acc, ARIMA3 = ARIMA3_acc, ARIMA4 = ARIMA4_acc,
@@ -825,7 +1565,17 @@ acc_list_STL <- list(STL_ARIMA  = STL_ARIMA_acc, STL_ARIMA2 = STL_ARIMA2_acc, ST
                    STL_ARIMA7 = STL_ARIMA7_acc, STL_ARIMA8 = STL_ARIMA8_acc)
 
 acc_list_X <- list(SARIMAX  = SARIMAX_acc, SARIMAX2 = SARIMAX2_acc, SARIMAX3 = SARIMAX3_acc, SARIMAX4 = SARIMAX4_acc,
-                 SARIMAX5 = SARIMAX5_acc, SARIMAX6 = SARIMAX6_acc, SARIMAX7 = SARIMAX7_acc, SARIMAX8 = SARIMAX8_acc)
+                 SARIMAX5 = SARIMAX5_acc, SARIMAX6 = SARIMAX6_acc, SARIMAX7 = SARIMAX7_acc, SARIMAX8 = SARIMAX8_acc,
+                 SARIMAX9 = SARIMAX9_acc, SARIMAX10 = SARIMAX10_acc, SARIMAX11 = SARIMAX11_acc, 
+                 SARIMAX12 = SARIMAX12_acc, SARIMAX13 = SARIMAX13_acc)
+
+acc_list_G <- list("SARIMA-fiGARCH" = Garch_acc, "SARIMA-fiGARCH 1" = Garch_acc_sarima,
+                   "SARIMA-fiGARCH 2" = Garch_acc_sarima2, "SARIMA-fiGARCH 3" = Garch_acc_sarima3,
+                   "SARIMA-fiGARCH 4" = Garch_acc_sarima4, "TBATS-fiGARCH" = Garch_acc_TBATS,
+                   "SARIMAX-fiGARCH" = Garch_acc_sarimax
+                   )
+
+acc_list_T <- list(TBATS = TBATS_acc, TBATS2 = TBATS_acc2)
 ```
 
 ### ARIMA
@@ -853,20 +1603,94 @@ The original model was outperformed by the STL-ARIMA(5,1,2) model (which had its
 ### SARIMAX
 ```{r}
 acc_df_X <- map_df(acc_list_X, ~ as.data.frame(.x)["Test set", ], .id = "Model")
-acc_df_X %>% arrange(MASE) %>% mutate(across(where(is.numeric), ~ round(.x, digits = 2)))
+acc_df_X %>% arrange(RMSE) %>% mutate(across(where(is.numeric), ~ round(.x, digits = 2)))
 ```
 
 The original model performed best in regards to its ME, RMSE, MAE and MPE. I had slightly worse performance on its MAPE, and ACF1 (which means it captured 0.01 less of the autocorrelation in the residuals compared to SARIMAX 8 and 7). There was no best model for the Theil's U or MASE accuracy metrics.
 
 I can see that across all models performances on the validation set, the models that were trained on BoxCox transformed time series performed worse than models that were trained on the original time series.
 
+Unfortunately the models with the new exogenous variables performed much worse overall than the other SARIMAX models.
+
+### SARIMA-fiGARCH
+```{r}
+acc_df_G <- map_df(acc_list_G, ~ as.data.frame(.x)["Test set", ], .id = "Model")
+acc_df_G %>% arrange(MAPE) %>% mutate(across(where(is.numeric), ~ round(.x, digits = 2)))
+```
+
+The original model outperformed the other models in terms of its ME, MAE, and MPE.
+
+The fiGARCH model trained on the TBATS residuals had a lower RMSE and MAPE compared to the original model.
+
+All of the models had the same ACF1
+
+The original model and the fiGARCH model trained on the TBATS residuals both had a Theil's U of 1, which means they had the same performance as a naive forecast. Since both models are no better than a naive forecast I have decided not to move forward with this type of model.
+
+### TBATS
+```{r}
+acc_df_T <- map_df(acc_list_T, ~ as.data.frame(.x)["Test set", ], .id = "Model")
+acc_df_T %>% arrange(RMSE) %>% mutate(across(where(is.numeric), ~ round(.x, digits = 2)))
+```
+
+The second TBATS model (TBATS2) trained on the 2017 time series with outliers removed has a better ME, RMSE, MAE, MPE and MAPE than the original TBATS model. It has lower absolute and percentage errors when compared to the original TBATS model, which indicates that model TBATS2 has stronger predictive power.
+
+The MASE however is higher for the second TBATS than the first TBATS. This could be because the models use different seasonal periods {<48,8>} vs {<48,7>}, and therefore the naive benchmark that each model is being compared to with MASE is slightly different. Because the models use different seasonal periods, and there for different naive benchmarks, the MASE for the models cannot be directly compared.
+
+# Plots
+```{r}
+plot_actual_forecast <- function(start_time, actual_vals, start_year, forecasts, model_name) {
+start_time     <- as.POSIXct(start_time, tz = "UTC")
+times_forecast <- seq(start_time, by = "30 min", length.out = 17520)
+
+Test_time_series2 <- ts(actual_vals$DollarsPerMegawattHour, frequency = 48, start = c(start_year, 1))
+df_actual <- data.frame(Date = times_forecast, Value = as.numeric(Test_time_series2), Type = "Actual")
+
+df_forecast <- data.frame(
+  Date  = times_forecast,
+  Mean  = as.numeric(forecasts$mean),
+  Lower = as.numeric(forecasts$lower[,2]),  # 95% lower bound
+  Upper = as.numeric(forecasts$upper[,2]),  # 95% upper bound
+  Type  = "Forecast"
+)
+
+ggplot() +
+  geom_line(data = df_actual, aes(x = Date, y = Value, color = "Actual"), size = 0.55) +
+  geom_line(data = df_forecast, aes(x = Date, y = Mean, color = "Forecast"), 
+            size = 1, alpha = 0.8, linetype = "dashed") +
+  geom_ribbon(data = df_forecast, aes(x = Date, ymin = Lower, ymax = Upper), 
+              fill = "lightblue", alpha = 0.3) +
+  scale_color_manual(values = c("Actual" = "firebrick1", "Forecast" = "steelblue3")) +
+  scale_x_datetime(date_breaks = "1 month",  date_labels = "%B",  expand = c(0, 0), 
+                   guide = guide_axis(n.dodge = 2)) +
+  labs(title = paste(model_name, " Forecast vs Actual Prices for ", start_year, sep = ""),
+       x = "Month", y = "Electricity Price", color = "Legend") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  coord_cartesian(ylim = c(0, 1000))
+}
+```
+
+```{r}
+plot_actual_forecast("2018-01-01 00:00:00", Val_set, 2018, forecast_TBATS2, "TBATS")
+```
+
 # References and Citations
 
-Electricity Authority. (n.d.). Final energy prices by month [Dataset]. EMI – Electricity Market Information. Retrieved between July 11 and July 15, 2025, from
+Electricity Authority. (n.d.). Final energy prices by month [Dataset]. EMI - Electricity Market Information. Retrieved between July 11 and July 15, 2025, from
 https://www.emi.ea.govt.nz/Wholesale/Datasets/DispatchAndPricing/FinalEnergyPrices/ByMonth
 
-Electricity Authority. (n.d.). Generation output by plant [Dataset]. EMI – Electricity Market Information. Retrieved between July 18 and July 20, 2025, from
+Electricity Authority. (n.d.). Generation output by plant [Dataset]. EMI - Electricity Market Information. Retrieved between July 18 and July 20, 2025, from
 https://www.emi.ea.govt.nz/Wholesale/Datasets/Generation/Generation_MD
 
+Electricity Authority. (n.d.). Bids [Datasets]. EMI - Electricity Market Information. Retrieved between July 24 and July 27, 2025, from
+www.emi.ea.govt.nz/Wholesale/Datasets/BidsAndOffers/Bids
+
+Ministry for the Environment. (15 Oct 2020). Daily temperature, 1909 - 2019 [Dataset]. Ministry for the Environment. Retrieved on August 16th, from
+https://data.mfe.govt.nz/table/105056-daily-temperature-1909-2019/
+
+Ministry of Business, Inovation and Employment. (n.d.). weekly-table [Dataset]. Ministry for the Environment. Retrieved on August 16th, from
+https://www.mbie.govt.nz/building-and-energy/energy-and-natural-resources/energy-statistics-and-modelling/energy-statistics/weekly-fuel-price-monitoring
+
+Consumer NZ. (31 Jan 2019). Fixing the New Zealand Building Code. Consumer NZ. https://www.consumer.org.nz/articles/fixing-the-new-zealand-building-code
 
 ...
