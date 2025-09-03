@@ -584,7 +584,9 @@ I'm starting with a simple ARIMA-GARCH model with 1 GARCH term (lagged condition
 I'm starting by testing different distributions with the same model to see which distribution is best for modelling the differenced time series. The distributions I'm checking are the normal distribution, the standard normal distribution, the generalized error distribution, the skew normal distribution, and the standardized skew Students t distribution.
 
 Testing different distributions:
-```{r}
+```{r testing SARIMA-fiGARCH}
+sarima_residuals <- residuals(SARIMA_model1)
+
 fit_SARIMA_GARCH <- function(distribution, garchorder_1, garchorder_2, armaOrder1, armaOrder2){
 spec <- ugarchspec(
   variance.model = list(model = "sGARCH", garchOrder = c(garchorder_1, garchorder_2)),
@@ -827,7 +829,7 @@ The SARIMA(3,1,1)(0,0,1)[48] model captures the mean and seasonal structure of t
 
 #### Fitting SARIMA-fiGARCH
 
-```{r}
+```{r SARIMA fiGARCH}
 arima_residuals <- residuals(SARIMA_model1)
 
 spec <- ugarchspec(

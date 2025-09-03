@@ -1015,14 +1015,14 @@ None of the other variables are strongly correlated with each other.
 
 Variables that are strongly correlated with each other will not be placed in the same model to avoid multicollinearity.
 
-```{r}
+```{r SARIMAX 9}
 xreg_9 <- cbind(E_gen, Bid_Vol, HDD, CDD, Gas_Price)
 
 SARIMAX_model9 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = xreg_9,
                                  d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
 ```
 
-```{r}
+```{r SARIMAX 10}
 xreg_10 <- cbind(Bid_Vol, HDD, CDD, Gas_PG_scaled)
 
 SARIMAX_model10 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = xreg_10,
@@ -1030,7 +1030,7 @@ SARIMAX_model10 <- auto.arima(time_series_data, stepwise = TRUE, approximation =
 ```
 
 Using PCA components:
-```{r}
+```{r PCA}
 all_variables <- cbind(E_gen, Bid_Vol, Gas_Price, week_day, Gas_PG_scaled, half_hourly_temp)
 
 pca_mod <- prcomp(scale(all_variables), center = FALSE, scale. = FALSE)
@@ -1045,7 +1045,7 @@ abline(h = 0.9, lty = 2, col = "red")
 ```
 90% of the variance is captured by around 4 principal components.
 
-```{r}
+```{r PCA scores}
 PC_scores <- as.data.frame(pca_mod$x[, 1:4])
 colnames(PC_scores) <- paste0("PC", 1:4)
 
@@ -1053,26 +1053,26 @@ colnames(PC_scores) <- paste0("PC", 1:4)
 PC_ts <- ts(PC_scores, start = c(2017, 1), frequency = frequency(48))
 ```
 
-```{r}
+```{r SARIMAX 11}
 SARIMAX_model11 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = PC_ts,
                                  d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
 ```
 
-```{r}
+```{r SARIMAX 12}
 xreg_12 <- cbind(E_gen, HDD, Gas_PG_scaled)
 
 SARIMAX_model12 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = xreg_12,
                                  d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
 ```
 
-```{r}
+```{r SARIMAX 13}
 xreg_13 <- cbind(E_gen, Bid_Vol, HDD, Gas_PG_scaled)
 
 SARIMAX_model13 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = xreg_13,
                                  d = 1, max.p = 3, max.q = 3, max.P = 2, max.Q = 2, seasonal = TRUE)
 ```
 
-```{r}
+```{r SARIMAX 14}
 xreg_14 <- cbind(E_gen, Bid_Vol, half_hourly_temp, Gas_PG_scaled)
 
 SARIMAX_model14 <- auto.arima(time_series_data, stepwise = TRUE, approximation = TRUE, xreg = xreg_14,
@@ -1081,7 +1081,7 @@ SARIMAX_model14 <- auto.arima(time_series_data, stepwise = TRUE, approximation =
 
 ## TBATS
 Training a TBATS model on cleaned data (removing outliers)
-```{r}
+```{r TBATS}
 outliers  <- tsoutliers(time_series_data)
 cleaned_ts <- replace(time_series_data, outliers$index, outliers$replacements)
 TBATS_model_2 <- tbats(cleaned_ts)
@@ -1444,17 +1444,17 @@ forecast_GARCH_SARIMA <- ts(fitted(forecast_raw_Garch), start = c(2018, 1), freq
 ```
 
 ```{r}
-forecast_raw_Garch <- ugarchforecast(GARCH_model_1, n.ahead = 17520)
+forecast_raw_Garch <- ugarchforecast(GARCH_model_Sarima2, n.ahead = 17520)
 forecast_GARCH_SARIMA2 <- ts(fitted(forecast_raw_Garch), start = c(2018, 1), frequency = 48)
 ```
 
 ```{r}
-forecast_raw_Garch <- ugarchforecast(GARCH_model_1, n.ahead = 17520)
+forecast_raw_Garch <- ugarchforecast(GARCH_model_Sarima3, n.ahead = 17520)
 forecast_GARCH_SARIMA3 <- ts(fitted(forecast_raw_Garch), start = c(2018, 1), frequency = 48)
 ```
 
 ```{r}
-forecast_raw_Garch <- ugarchforecast(GARCH_model_1, n.ahead = 17520)
+forecast_raw_Garch <- ugarchforecast(GARCH_model_Sarima4, n.ahead = 17520)
 forecast_GARCH_SARIMA4 <- ts(fitted(forecast_raw_Garch), start = c(2018, 1), frequency = 48)
 ```
 
@@ -1634,7 +1634,7 @@ acc_df_T %>% arrange(RMSE) %>% mutate(across(where(is.numeric), ~ round(.x, digi
 
 The second TBATS model (TBATS2) trained on the 2017 time series with outliers removed has a better ME, RMSE, MAE, MPE and MAPE than the original TBATS model. It has lower absolute and percentage errors when compared to the original TBATS model, which indicates that model TBATS2 has stronger predictive power.
 
-The MASE however is higher for the second TBATS than the first TBATS. This could be because the models use different seasonal periods {<48,8>} vs {<48,7>}, and therefore the naive benchmark that each model is being compared to with MASE is slightly different. Because the models use different seasonal periods, and there for different naive benchmarks, the MASE for the models cannot be directly compared.
+The MASE however is higher for the second TBATS than the first TBATS. This could be because the models use different seasonal periods {<48,8>} vs {<48,7>}, and therefore the naive benchmark that each model is being compared to with MASE is slightly different. Because the models use different seasonal periods, and therefor different naive benchmarks, the MASE for the models cannot be directly compared.
 
 # Plots
 ```{r}
