@@ -135,8 +135,9 @@ I obtained the following accuracy metrics by forecasting the energy prices for 2
 ARIMA         |4.25  | 18.39  |	13.12	| 0.61	| 15.29	| 0.67	| 0.65   | 1.38      |
 SARIMA        |6.67	 | 19.18  |	13.62	| 3.44	| 15.51	| 0.70	| 0.65   | 1.38      |
 STL_ARIMA     |4.65  |	19.77	| 14.90	| 0.82	| 17.62	| 0.76	| 0.69	 | 1.53      |
-SARIMAX_2      |7.96  |	20.78	| 15.85	| 4.93	| 18.09	| 0.81	| 0.68   | 1.50      |
-SARIMAX        |7.80  |	20.67	| 15.88	| 4.79	| 18.08	| 0.81	| 0.67   | 1.47      |
+SARIMAX_2     |7.96  |	20.78	| 15.85	| 4.93	| 18.09	| 0.81	| 0.68   | 1.50      |
+SARIMAX       |7.80  |	20.67	| 15.88	| 4.79	| 18.08	| 0.81	| 0.67   | 1.47      |
+TBATS         |7.92  |	21.35	| 16.58	| 4.75	| 19.14 | 0.85	| 0.70   | 1.60      |
 ARIMA-fiGARCH |26.97 | 104.26	| 51.42	| -1855.52 | 1889.67 | 6.34 | 0.91 | 10.95   |
 
 The ARIMA model has the best ME, RMSE, MAE, MPE, MAPE, MASE and Theil's U. It had the second best ACF1. ARIMA was the most accurate forecasting model.
@@ -146,6 +147,8 @@ The worst model was the ARIMA-GARCH model with the worst performance on every me
 SARIMA and STL-ARIMA had similar performance with SARIMA having a slightly lower value for most metrics. STL-ARIMA had the lower values for ME and MPE though.
 
 The SARIMAX model (labeled SARIMAX_model2) with the forecasted energy generation variable in its xreg, performed similarly to SARIMAX with the actual values for energy generation in its xreg. There is an average difference of 0.05 between the performances. This tells me that the use of an estimated Energy_generation variable does not harm model performance significantly.
+
+The TBATS model has the second worst performance metrics for ME, RMSE, MAE and MAPE. It had the worst Theil's U out of all the models.
 
 All models have ACF1 values of 0.65 or larger indicating a strong positive autocorrelation at lag 1, this suggests that every model fitted has not yet captured all autocorrelation in the time series. Ideally, residuals should resemble white noise (where ACF1 approximately equals 0). During model refinement I will try adding more AR and MA terms to try and capture this autocorrelation. I will also reassess the differencing order to see if the series needs further transformation.
 
@@ -190,11 +193,21 @@ SARIMA PACF:
 ![Alt](Images/21.png)
 
 # Model refinement
-I applied a BoxCox transformation to the time series to fix the non-constant variance and the non-normality.
+For each of the model types (ARIMA, SARIMA, SARIMAX, STL-ARIMA, SARIMA-fiGARCH) I applied a BoxCox transformation to the time series to fix the non-constant variance and the non-normality. I increased the AR and MA terms of the model to capture the remaining autocorrelation.
 
-I increased the AR and MA terms of the model to capture the remaining autocorrelation.
+To improve SARIMAX I tried different combinations of exogenous variables. I also made seven new exogenous variables: Bid volume, temeperature, HDD, CDD, natural gas prices, and gas price * energy generated using natural gas.
 
-I fitted seven ARIMA models, nine SARIMA models, eight STL-ARIMA models and seven SARIMAX models.
+Bid volume: Bids per trading period (excluding place holder bids where no megawatts of energy were bid on). I obtained this data from the Electricity Authority on their Wholesale datasets: Bids page.
+
+For the temperature variable I obtained daily minimum, maximum and average temperatures from the Ministry for the Environment. Since this project only uses data from the the ABY0111 point of connection, which is in the Albury area, I used the temperautre data from the closest automatic weather station to Albury which is Timaru Aero Aws. Because I only had daily minimum, maximum and average temperatures, and I needed half hourly data I decided to use a two phase sine curve to estimate the temperatures for each day in 2017
+
+I also made two variables HDD and CDD which were derived from temperature to help model heating demand and cooling demand. A base temperature of 18 C was used for this calculation.
+
+The data used to make the natural gas variable was obtained from emsTradepoint. Since around 95% of natural gas in NZ is sold under long term contracts, then most natural gas prices aren't publicly available. However about 5% of natural gas in NZ is traded on the spot market (via emsTradepoint). The spot market prices aren't representative of the whole market, but the spot market prices will still help my model forecast energy prices because natural gas sets the marginal price, as natural gas is the most expensive fuel type for energy generation in NZ.  Including natural gas prices in my model will help to capture fuel supply shocks and price spikes that drive marginal generation costs.
+
+I decided to try using PCA components to inform one of my SARIMAX models. I used prcomp() to perform principal component analysis on a matrix containing E_gen, Bid_Vol, Gas_Price, week_day, Gas_PG_scaled, and half_hourly_temp. I found that 90% of the variance was captured by 4 principal components. I used 4 principal components to inform the 11th SARIMAX model.
+
+In total I fitted seven more ARIMA models, nine SARIMA models, eight STL-ARIMA models, seven SARIMA-fiGARCH, one TBATS and thirteen SARIMAX models.
 
 # Refined models performance on Validation set
 
@@ -257,16 +270,69 @@ SARIMAX(2,1,2)(0,0,1)    |7.96  | 20.78  |	15.85	| 4.93     |18.09	   | 0.81	 | 
 SARIMAX(3,1,2)(0,0,1)    |8.11  | 20.83  |	15.87	| 5.11     |18.09	   | 0.81	 | 0.68 | 1.50  |
 SARIMAX(3,1,3)(0,0,1)    |8.24  | 20.86  |	15.88	| 5.26     |18.07	   | 0.81	 | 0.67 | 1.50  |
 SARIMAX(2,1,3)(0,0,1)    |8.26  | 20.87  |	15.88	| 5.28     |18.07	   | 0.81	 | 0.67 | 1.50  |
-SARIMAX(2,1,2)(0,0,1) bc |13.99 | 98.68	| 51.55	| -2260.97 | 2286.05 | NA	   |  0.90| 13.26 |
-SARIMAX(3,1,2)(0,0,1) bc |15.13 | 99.07	| 51.25	| -2213.46 | 2239.04 | NA    | 0.90 |	12.98 |
-SARIMAX(2,1,3)(0,0,1) bc |14.23 | 98.93	| 51.65	|-2237.04	 | 2262.31 | NA	   |  0.90| 13.11	|
-SARIMAX(3,1,3)(0,0,1) bc |14.46 | 98.63 | 51.19  |	-2251.19 | 2276.35 |	NA	 |  0.90| 13.21	|
+SARIMAX 12th model       |-3.42	| 97.12	 | 59.13	| -2884.63 |2903.77  |	NA	 | 0.90	| 16.95 |
+SARIMAX(2,1,2)(0,0,1) bc |13.99 | 98.68	 | 51.55	| -2260.97 | 2286.05 | NA	   |  0.90| 13.26 |
+SARIMAX(3,1,2)(0,0,1) bc |15.13 | 99.07	 | 51.25	| -2213.46 | 2239.04 | NA    |  0.90|	12.98 |
+SARIMAX 11th model       |14.38	| 99.73  |	52.01	| -2209.02 | 2234.52 | NA    |	0.90|	12.96 |
+SARIMAX(2,1,3)(0,0,1) bc |14.23 | 98.93	 | 51.65	| -2237.04 | 2262.31 | NA	   |  0.90| 13.11	|
+SARIMAX(3,1,3)(0,0,1) bc |14.46 | 98.63  | 51.19  |	-2251.19 | 2276.35 | NA 	 |  0.90| 13.21	|
+SARIMAX 13th model       |19.04	|101.65	 | 52.16	| -2006.11 | 2034.96 |NA     |	0.91| 11.75 |
+SARIMAX 9th model        |19.19	|101.68	 | 52.15	| -1999.42 | 2028.40 |NA     |	0.91| 11.71 |
+SARIMAX 14th model       |18.92	|101.77	 | 52.34	| -1999.35 | 2028.21 |NA	   |  0.91|	11.70 |
+SARIMAX 10th model	     |17.31	|102.04	 | 53.04	| -2108.94 | 2136.72 |NA     |	0.91| 12.41 |
 
-I have fitted the models labeled "bc" on the BoxCox transformed time series. The rest of the models were fitted on the original time series. I have used the same xreg (contianing Season, Energy_generation and Is_weekend) for all the models. The first model is the original model I fitted prior to model refinement.
+The 9th SARIMAX model contianed the following variables: Energy Generated, Bid volume, HDD, CDD, Gas Prices
 
-The original model performed best on every metric.
+The 10th SARIMAX model contianed the following variables: Bid volume, HDD, CDD, Gas Prices * Energy Generated using Natural Gas
+
+The 11th SARIMAX model contianed the following variables: four principal components
+
+The 12th SARIMAX model contianed the following variables: Energy Generated, HDD, Gas Prices * Energy Generated using Natural Gas
+
+The 13th SARIMAX model contianed the following variables: Energy Generated, Bid volume, HDD, Gas Prices * Energy Generated using Natural Gas
+
+The 14th SARIMAX model contianed the following variables: Energy Generated, Bid volume, Temperature, Gas Prices * Energy Generated using Natural Gas
+
+All of the models using the new exogenous variables did much worse than the models using the original exogenous variables. The 12th SARIMAX model had unusual results in regards to their performance metrics. It had the best mean error at -3.42. But the worst MPE and MAPE.
+
+![Alt](Images/24.png)
+
+I have fitted the models labeled "bc" on the BoxCox transformed time series. The rest of the models were fitted on the original time series. I have used the same xreg (contianing Season, Energy_generation and Is_weekend) for all the models (except for the 9th, 10th, 11th, 12th, 13th and 14th). The first model is the original model I fitted prior to model refinement.
+
+The original model performed best on most metric's (RMSE, MAE, and MPE). The 12th SARIMAX model had the best mean error. The models SARIMAX(3,1,3)(0,0,1) and SARIMAX(2,1,3)(0,0,1) had the best MAPE values with a difference of 0.02 when compared to the original model.
 
 I can see that across all models performances on the validation set, the models that were trained on BoxCox transformed time series performed worse than models that were trained on the original time series.
+
+## SARIMA-fiGARCH
+|            | ME       | RMSE   |      MAE | MPE | MAPE | ACF1  | Theil's U|
+|------------|----------|--------|----------|-----|------|-------|----------|
+TBATS-fiGARCH    | 100.51 |	142.20 | 100.51 |	99.40  |	99.43  |	0.91 |	1.00 |
+SARIMA-fiGARCH 0 | 100.45 |	142.24 | 100.45 |	98.15  |	100.20 |	0.91 |	1.00 |
+SARIMAX-fiGARCH  | 100.72 | 142.35 | 100.72 |	104.84 |	104.84 |	0.91 |	1.01 |
+SARIMA-fiGARCH 1 | 100.75 |	142.37 | 100.75 | 105.65 |	105.65 |	0.91 |	1.01 |
+SARIMA-fiGARCH 2 | 100.75 |	142.37 | 100.75 | 105.65 |	105.65 |	0.91 |	1.01 |
+SARIMA-fiGARCH 3 | 100.75 |	142.37 | 100.75 | 105.65 |	105.65 |	0.91 |	1.01 |
+SARIMA-fiGARCH 4 | 100.75 |	142.37 | 100.75 | 105.65 |	105.65 |	0.91 |	1.01 |
+
+The model labeled SARIMA-fiGARCH 0 is the original model.
+
+The original model outperformed the other models in terms of its ME, MAE, and MPE.
+
+The fiGARCH model trained on the TBATS residuals had a lower RMSE and MAPE compared to the original model.
+
+All of the models had the same ACF1
+
+The original model and the fiGARCH model trained on the TBATS residuals both had a Theil's U of 1, which means they had the same performance as a naive forecast. Since both models are no better than a naive forecast I have decided not to move forward with this type of model.
+
+## TBATS
+|            | ME       | RMSE   |      MAE | MPE | MAPE | ACF1  | Theil's U| MASE   |
+|------------|----------|--------|----------|-----|------|-------|----------|--------|
+TBATS 2      | 7.08	    | 21.09  |	16.27   |	3.74|	18.98|	0.97 |	0.7	    | 1.61   |
+TBATS        | 7.92	    | 21.35	 |  16.58	  | 4.75|	19.14|	0.85 |	0.7	    | 1.60   |
+
+The second TBATS model (TBATS2) trained on the 2017 time series with outliers removed has a better ME, RMSE, MAE, MPE and MAPE than the original TBATS model. It has lower absolute and percentage errors when compared to the original TBATS model, which indicates that model TBATS2 has stronger predictive power.
+
+The MASE however is higher for the second TBATS than the first TBATS. This could be because the models use different seasonal periods {<48,8>} vs {<48,7>}, and therefore the naive benchmark that each model is being compared to with MASE is slightly different. Because the models use different seasonal periods, and therefor different naive benchmarks, the MASE for the models cannot be directly compared.
 
 # Final Model assessment on 2019 test data
 I forecast 48 trading periods for twelve months for my four models, ARIMA(3,1,2), SARIMA(3,1,1)(0,0,1), ARIMA(4,1,1), and STL-ARIMA(5,1,2).
@@ -274,24 +340,31 @@ I forecast 48 trading periods for twelve months for my four models, ARIMA(3,1,2)
 |            | ME       | RMSE   |      MAE | MPE | MAPE | ACF1  | Theil's U| MASE   |
 |------------|----------|--------|----------|-----|------|-------|----------|--------|
 SARIMAX      | 11.2403	|59.2407 |	40.4201	|-Inf	| Inf  | 0.8811|	0.4783	| 0.7914 |
+TBATS        | 11.8560	|59.4417 |	40.0670	|-Inf	| Inf	 | 0.8798|	0.4799	| 0.7845 |
 STL_ARIMA    | 13.7859	|60.1209 |  40.4767 |-Inf |	Inf  | 0.8831|  0.4854  | 0.7926 |
 SARIMA       | 12.3399	|60.5459 |	40.7679 |	-Inf|	Inf  | 0.8848|	0.4888  |	0.7983 |
 ARIMA(3,1,2) | 12.6308	|60.6052 |	40.8170 |	-Inf|	Inf  | 0.8848|	0.4893  |	0.7992 |
 ARIMA(4,1,1) | 13.1930	|60.7250 |	40.9186 |	-Inf|	Inf  | 0.8848|	0.4903  |	0.8012 |
 
-The SARIMAX model had the best ME, RMSE, MAE, Theil's U and MASE. The SARIMAX model had the lowest ACF1 which means that, compared to the other models, it captured the most autocorrelation present in the data. However since the SARIMAX models ACF1 is still much higher than 0, then there is still uncaptured autocorrelation in the data.
+The SARIMAX model had the best ME, RMSE, and Theil's U. 
+
+The TBATS model had the best MAE, ACF1 and MASE.
+
+The TBATS model had the lowest ACF1 which means that, compared to the other models, it captured the most autocorrelation present in the data. However since the TBATS models ACF1 is still much higher than 0, then there is still uncaptured autocorrelation in the data.
 
 The MASE for all of the models is less than 1, which means that all of the models outperform a naive forecast.
 
 The MASE for SARIMAX(2,1,2)(0,0,1)[48] is 0.79 which means that its errors are 21% smaller than a naive forecasts. With a Theil’s U of 0.4783, the model’s forecast error is less than half that of a naive model, indicating strong predictive power.
 
-The models mean error was 11.24 which means on average its forecasts overestimate actual prices by about 11.24 dollars per megawatt hour.
+The SARIMAX models mean error was 11.24 which means on average its forecasts overestimate actual prices by about 11.24 dollars per megawatt hour.
 
-The models root mean square error was 59.24 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value is probably due to how volatile the data is.
+The SARIMAX models root mean square error was 59.24 which indicates large forecast errors, since squared errors penalize larger errors more heavily this high RMSE value is probably due to how volatile the data is.
 
-The models mean absolute error was 40.42 which means that forecasts were off by 40.42 units on average. This is 37.16% of the annual mean energy price, which was 108.749 in 2019. The mean absolute error is relatively high, even when considering how volatile the data is. There is alot of room for improvement in the models accuracy.
+The SARIMAX models mean absolute error was 40.42 which means that forecasts were off by 40.42 units on average. This is 37.16% of the annual mean energy price, which was 108.749 in 2019. The mean absolute error is relatively high, even when considering how volatile the data is. There is a lot of room for improvement in the models accuracy.
 
 ![Alt](Images/23.png)
+
+![Alt](Images/25.png)
 
 # Conclusion
 
