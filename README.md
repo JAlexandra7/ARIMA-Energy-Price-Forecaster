@@ -364,8 +364,6 @@ The SARIMAX models mean absolute error was 40.42 which means that forecasts were
 
 ![Alt](Images/23.png)
 
-![Alt](Images/25.png)
-
 # Conclusion
 
 My research question was "Which time series model most accurately predicts 2019 energy prices, using historical energy price data from 2017 and 2018?"
